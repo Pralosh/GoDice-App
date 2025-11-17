@@ -26,6 +26,7 @@
       main {
         padding: 16px 20px 32px;
       }
+
       .btn {
         padding: 8px 12px;
         border-radius: 6px;
@@ -42,6 +43,7 @@
       .btn-secondary {
         background: #020617;
       }
+
       .top-row {
         display: flex;
         flex-wrap: wrap;
@@ -53,6 +55,7 @@
         font-size: 14px;
         color: #e5e7eb;
       }
+
       #diceList {
         margin-top: 12px;
       }
@@ -78,7 +81,7 @@
         opacity: 0.5;
       }
 
-      /* Overlay for Start Game */
+      /* Start Game overlay */
       .overlay {
         position: fixed;
         inset: 0;
@@ -169,6 +172,44 @@
       .modal-footer {
         margin-top: 12px;
         text-align: right;
+      }
+
+      /* Visual dice area */
+      .faces-section-title {
+        margin: 20px 0 8px 0;
+        font-size: 16px;
+      }
+      #diceFaces {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+      .dice-face {
+        text-align: center;
+        color: #e5e7eb;
+      }
+      .dice-face-label {
+        font-size: 14px;
+        margin-bottom: 4px;
+      }
+      .dice-square {
+        width: 80px;
+        height: 80px;
+        border-radius: 12px;
+        border: 2px solid #e5e7eb;
+        background: #111827;
+        box-shadow: 0 0 0 2px #1f2937;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+      }
+      .dice-square-value {
+        font-size: 32px;
+        font-weight: 700;
+      }
+      .dice-face-value {
+        font-size: 14px;
       }
     </style>
   </head>
@@ -266,9 +307,14 @@
         <h2 style="margin: 0 0 8px 0; font-size: 16px">Connected Dice</h2>
         <div id="diceList"></div>
       </section>
+
+      <!-- NEW: visual dice area (like your sketch) -->
+      <section>
+        <h2 class="faces-section-title">Last Roll by Die</h2>
+        <div id="diceFaces"></div>
+      </section>
     </main>
 
-    <!-- GoDice library -->
     <script src="godice.js"></script>
     <script>
       /**********************************
@@ -299,6 +345,7 @@
       const endSessionBtn = document.getElementById("endSessionBtn");
       const connectBtn = document.getElementById("connectBtn");
       const diceList = document.getElementById("diceList");
+      const diceFaces = document.getElementById("diceFaces");
 
       /**********************************
        * MANAGERS (static list for now)
@@ -372,9 +419,13 @@
           managerId: manager.id,
           managerName: manager.name,
         };
-        sessionState.rolls = []; // reset in-memory rolls for this session
+        sessionState.rolls = []; // reset in-memory rolls
 
         console.log("[SESSION STARTED]", sessionState.current);
+
+        // Reset labels and dice UI at the start of each game
+        resetLabelGen();
+        clearAllDiceUI();
 
         // Update UI
         sessionInfo.textContent = formatSessionInfo(sessionState.current);
@@ -395,6 +446,9 @@
 
         console.log("[SESSION ENDED]", summary);
 
+        // Disconnect all dice at end of game
+        disconnectAllDice();
+
         // Reset session state
         sessionState.active = false;
         sessionState.current = null;
@@ -403,7 +457,7 @@
         // Update UI
         sessionInfo.textContent = "No active game session";
         connectBtn.disabled = true;
-        endSessionBtn.disabled = true;
+        endSessionBtn.disabled = false; // keep enabled until dice disconnect done, then overlay appears
 
         // Show overlay again for next table
         startOverlay.style.display = "flex";
@@ -449,13 +503,13 @@
 
       /**********************************
        * DICE CONNECTION LOGIC
-       * (mostly what you already had)
        **********************************/
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       function shortId(id) {
         return (id || "").slice(0, 6) + "…";
       }
 
+      // LABEL GENERATOR (reset to A/B each game)
       function* labelGen() {
         const L = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
         let n = 0;
@@ -469,7 +523,11 @@
           yield s;
         }
       }
-      const nextLabel = labelGen();
+      let nextLabel;
+      function resetLabelGen() {
+        nextLabel = labelGen();
+      }
+      resetLabelGen(); // initial
 
       function makeQueue() {
         let p = Promise.resolve();
@@ -513,7 +571,28 @@
         return { root, title, status, battery, roll };
       }
 
-      const diceState = new Map(); // diceId -> { inst, label, els, queue, ready, batteryRequested, ledPulsed, lastActive, timer }
+      // NEW: create visual dice face box
+      function makeFaceCard(label) {
+        const root = document.createElement("div");
+        root.className = "dice-face";
+        const lbl = document.createElement("div");
+        lbl.className = "dice-face-label";
+        lbl.textContent = `Dice ${label}`;
+        const square = document.createElement("div");
+        square.className = "dice-square";
+        const valueEl = document.createElement("div");
+        valueEl.className = "dice-square-value";
+        valueEl.textContent = "-";
+        square.appendChild(valueEl);
+        const textUnder = document.createElement("div");
+        textUnder.className = "dice-face-value";
+        textUnder.textContent = "Last roll: -";
+        root.append(lbl, square, textUnder);
+        diceFaces.appendChild(root);
+        return { root, valueEl, textUnder };
+      }
+
+      const diceState = new Map(); // diceId -> { inst, label, els, faceEls, queue, ready, batteryRequested, ledPulsed, lastActive, timer }
 
       const goDice = new GoDice();
 
@@ -526,7 +605,8 @@
         }
       });
 
-      const INACTIVITY_MS = 100_000;
+      // Inactivity (you can tweak this as you like; you mentioned ~1 minute)
+      const INACTIVITY_MS = 100000;
 
       function markActive(diceId) {
         const st = diceState.get(diceId);
@@ -557,12 +637,47 @@
           } finally {
             if (st.timer) clearTimeout(st.timer);
             diceState.delete(diceId);
-            setTimeout(() => {
-              if (st.els.root.parentNode)
-                st.els.root.parentNode.removeChild(st.els.root);
-            }, 1000);
+            if (st.els.root.parentNode)
+              st.els.root.parentNode.removeChild(st.els.root);
+            if (st.faceEls?.root && st.faceEls.root.parentNode)
+              st.faceEls.root.parentNode.removeChild(st.faceEls.root);
           }
         });
+      }
+
+      // NEW: clear all dice UI elements (cards + faces)
+      function clearAllDiceUI() {
+        diceList.innerHTML = "";
+        diceFaces.innerHTML = "";
+        diceState.clear();
+      }
+
+      // NEW: disconnect all dice at end of session
+      function disconnectAllDice() {
+        const entries = Array.from(diceState.entries());
+        entries.forEach(([diceId, st]) => {
+          if (st.timer) clearTimeout(st.timer);
+          st.els.status.textContent = "Status: Disconnected";
+          st.els.root.classList.add("muted");
+          st.queue(async () => {
+            try {
+              await withGattRetry(() => st.inst.disconnect?.());
+            } catch (e) {
+              console.warn(
+                `[${st.label}] disconnect on endSession failed:`,
+                e?.message || e
+              );
+            } finally {
+              diceState.delete(diceId);
+              if (st.els.root.parentNode)
+                st.els.root.parentNode.removeChild(st.els.root);
+              if (st.faceEls?.root && st.faceEls.root.parentNode)
+                st.faceEls.root.parentNode.removeChild(st.faceEls.root);
+            }
+          });
+        });
+        // also reset labels so next game starts at Dice A again
+        resetLabelGen();
       }
 
       GoDice.prototype.onDiceConnected = async (diceId, inst) => {
@@ -570,11 +685,13 @@
         if (!st) {
           const label = nextLabel.next().value;
           const els = makeDieCard(diceId, label);
+          const faceEls = makeFaceCard(label);
           const queue = makeQueue();
           st = {
             inst,
             label,
             els,
+            faceEls,
             queue,
             ready: false,
             batteryRequested: false,
@@ -602,7 +719,7 @@
           });
         }
 
-        connectBtn.disabled = false; // session start controls if we can click, but we keep this enabled after connect
+        connectBtn.disabled = false;
         connectBtn.textContent = "Connect Another Die";
       };
 
@@ -628,6 +745,13 @@
         if (!st) return;
         st.els.roll.textContent = `Last roll: ${value}`;
         markActive(diceId);
+
+        // NEW: update visual dice box
+        if (st.faceEls) {
+          st.faceEls.valueEl.textContent = `${value}`;
+          st.faceEls.textUnder.textContent = `Last roll: ${value}`;
+        }
+
         // Record roll into current session
         recordRoll(diceId, st.label, value);
       };
@@ -665,7 +789,6 @@
        * INIT
        **********************************/
       populateManagerDropdown();
-      // Show overlay on load; connect button stays disabled until session starts.
     </script>
   </body>
 </html>
