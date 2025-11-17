@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GoDice Test</title>
+    <link rel="icon" href="./favicon.ico" />
+  </head>
+  <body>
+    <h1>GoDice Connection Test</h1>
+    <button id="connectBtn">Connect Die</button>
+    <div id="diceList" style="margin-top: 16px"></div>
+
+    <script src="godice.js"></script>
+    <script>
+      // ========= Constants =========
+      const INACTIVITY_MS = 30_000; // 30 seconds
+
+      // ========= DOM =========
+      const connectBtn = document.getElementById("connectBtn");
+      const diceList = document.getElementById("diceList");
+
+      // ========= Helpers =========
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      function shortId(id) {
+        return (id || "").slice(0, 6) + "…";
+      }
+
+      // Label generator: A,B,...,Z,AA,AB,...
+      function* labelGen() {
+        const L = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let n = 0;
+        while (true) {
+          let x = n++,
+            s = "";
+          do {
+            s = L[x % 26] + s;
+            x = Math.floor(x / 26) - 1;
+          } while (x >= 0);
+          yield s;
+        }
+      }
+      const nextLabel = labelGen();
+
+      // Per-die op queue to serialize GATT calls
+      function makeQueue() {
+        let p = Promise.resolve();
+        return (fn) =>
+          (p = p.then(fn).catch((e) => {
+            console.warn("[queue] op failed:", e?.message || e);
+            // keep queue alive
+          }));
+      }
+
+      // Retry wrapper for transient “GATT operation already in progress”
+      async function withGattRetry(fn, { retries = 6, delay = 250 } = {}) {
+        let last;
+        for (let i = 0; i < retries; i++) {
+          try {
+            return await fn();
+          } catch (e) {
+            const msg = (e && e.message) || String(e);
+            if (!/GATT operation already in progress/i.test(msg)) throw e;
+            last = e;
+            await sleep(delay * (i + 1)); // backoff
+          }
+        }
+        throw last;
+      }
+
+      // Build a simple card for a die
+      function makeDieCard(diceId, label) {
+        const root = document.createElement("div");
+        root.style.cssText =
+          "border:1px solid #ccc;padding:12px;border-radius:8px;margin:8px 0;max-width:460px;transition:opacity .3s ease;";
+        const title = document.createElement("h3");
+        title.textContent = `Dice ${label} (${shortId(diceId)})`;
+        const status = document.createElement("div");
+        status.textContent = "Status: Connected";
+        const battery = document.createElement("div");
+        battery.textContent = "Battery: —";
+        const roll = document.createElement("div");
+        roll.textContent = "Last roll: —";
+        root.append(title, status, battery, roll);
+        diceList.appendChild(root);
+        return { root, status, battery, roll };
+      }
+
+      // ========= State: diceId -> { inst, label, els, queue, ready, batteryRequested, ledPulsed, lastActive, timer } =========
+      const diceState = new Map();
+      const goDice = new GoDice();
+
+      // Keep console clean from benign library race during connect
+      window.addEventListener("unhandledrejection", (e) => {
+        const msg =
+          (e && e.reason && e.reason.message) || String(e.reason || "");
+        if (/GATT operation already in progress/i.test(msg)) {
+          e.preventDefault();
+          console.debug("[suppressed] library init race:", msg);
+        }
+      });
+
+      // ---- Inactivity management ----
+      function markActive(diceId) {
+        const st = diceState.get(diceId);
+        if (!st) return;
+        st.lastActive = Date.now();
+
+        // Reset the countdown timer
+        if (st.timer) clearTimeout(st.timer);
+        st.timer = setTimeout(() => handleInactivity(diceId), INACTIVITY_MS);
+      }
+
+      async function handleInactivity(diceId) {
+        const st = diceState.get(diceId);
+        if (!st) return;
+
+        // Double check lastActive (if something arrived right as timer fired)
+        const idleFor = Date.now() - (st.lastActive || 0);
+        if (idleFor < INACTIVITY_MS - 100) {
+          // activity happened; reschedule
+          if (st.timer) clearTimeout(st.timer);
+          st.timer = setTimeout(
+            () => handleInactivity(diceId),
+            INACTIVITY_MS - idleFor
+          );
+          return;
+        }
+
+        // Update UI first
+        st.els.status.textContent = "Status: Removed due to inactivity";
+        st.els.root.style.opacity = 0.5;
+
+        // Try to gracefully disconnect (queued + retried)
+        st.queue(async () => {
+          try {
+            await withGattRetry(() => st.inst.disconnect?.());
+          } catch (e) {
+            console.warn(
+              `[${st.label}] disconnect on inactivity failed:`,
+              e?.message || e
+            );
+          } finally {
+            // Remove timers, clear state, optionally remove the card
+            if (st.timer) clearTimeout(st.timer);
+            diceState.delete(diceId);
+
+            // Optional: remove the card from DOM after a short delay
+            setTimeout(() => {
+              if (st.els.root.parentNode)
+                st.els.root.parentNode.removeChild(st.els.root);
+            }, 1200);
+          }
+        });
+      }
+
+      // ========= GoDice library callbacks =========
+      GoDice.prototype.onDiceConnected = async (diceId, inst) => {
+        let st = diceState.get(diceId);
+        if (!st) {
+          const label = nextLabel.next().value;
+          const els = makeDieCard(diceId, label);
+          st = {
+            inst,
+            label,
+            els,
+            queue: makeQueue(),
+            ready: false,
+            batteryRequested: false,
+            ledPulsed: false,
+            lastActive: Date.now(),
+            timer: null,
+          };
+          diceState.set(diceId, st);
+          console.log(`[${label}] connected id=${diceId}`);
+        } else {
+          st.inst = inst;
+          st.els.status.textContent = "Status: Reconnected";
+          console.log(`[${st.label}] reconnected`);
+          st.lastActive = Date.now();
+        }
+
+        // Start/reset inactivity countdown
+        markActive(diceId);
+
+        // Let the library finish its own GATT work (discover/subscribe)
+        await sleep(2000);
+        st.ready = true;
+
+        // 1) Request battery (queued & retried)
+        if (!st.batteryRequested) {
+          st.batteryRequested = true;
+          st.queue(async () => {
+            await withGattRetry(() => st.inst.getBatteryLevel());
+          });
+        }
+
+        connectBtn.disabled = false;
+        connectBtn.textContent = "Connect Another Die";
+      };
+
+      GoDice.prototype.onBatteryLevel = async (diceId, level) => {
+        const st = diceState.get(diceId);
+        if (!st) return;
+        st.els.battery.textContent = `Battery: ${level}%`;
+
+        // Count battery pings as activity (useful when on charger)
+        markActive(diceId);
+
+        // 2) After first battery arrives, wait a tick and pulse LED (once)
+        if (!st.ledPulsed && st.ready) {
+          st.ledPulsed = true;
+          st.queue(async () => {
+            await sleep(400); // extra settle
+            await withGattRetry(() =>
+              st.inst.pulseLed(3, 15, 15, [0, 128, 155])
+            );
+          });
+        }
+      };
+
+      GoDice.prototype.onStable = (diceId, value /*, acc */) => {
+        const st = diceState.get(diceId);
+        if (!st) return;
+        st.els.roll.textContent = `Last roll: ${value}`;
+        // A roll is definitely activity
+        markActive(diceId);
+      };
+
+      GoDice.prototype.onDiceDisconnected = (diceId) => {
+        const st = diceState.get(diceId);
+        if (!st) return;
+        st.els.status.textContent = "Status: Disconnected";
+        if (st.timer) clearTimeout(st.timer);
+        console.log(`[${st.label}] disconnected`);
+        // Keep the card visible when a manual/remote disconnect happens
+      };
+
+      // ========= Connect button =========
+      let connecting = false;
+      connectBtn.addEventListener("click", async () => {
+        if (connecting) return;
+        connecting = true;
+        connectBtn.disabled = true;
+        connectBtn.textContent = "Connecting…";
+        try {
+          await goDice.requestDevice();
+        } catch (e) {
+          alert("Connection failed: " + (e?.message || e));
+          connectBtn.disabled = false;
+          connectBtn.textContent = "Connect Die";
+        } finally {
+          connecting = false;
+        }
+      });
+    </script>
+  </body>
+</html>
