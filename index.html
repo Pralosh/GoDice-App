@@ -173,6 +173,85 @@
         margin-top: 12px;
         text-align: right;
       }
+      .modal-wide {
+        width: 640px;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .history-layout {
+        display: flex;
+        gap: 12px;
+        margin-top: 8px;
+        flex: 1;
+        min-height: 220px;
+      }
+      .history-list {
+        flex: 1.4;
+        border-right: 1px solid #1f2937;
+        padding-right: 8px;
+        overflow-y: auto;
+      }
+      .history-details {
+        flex: 1;
+        padding-left: 8px;
+        overflow-y: auto;
+        border-left: 1px solid #1f2937;
+      }
+      .history-list-header,
+      .history-row {
+        display: grid;
+        grid-template-columns: 1.6fr 0.7fr 0.9fr 1.3fr 0.6fr 0.9fr;
+        column-gap: 6px;
+        font-size: 12px;
+        align-items: center;
+      }
+      .history-list-header {
+        font-weight: 600;
+        color: #e5e7eb;
+        border-bottom: 1px solid #374151;
+        padding-bottom: 4px;
+        margin-bottom: 4px;
+      }
+      .history-list-body {
+        max-height: 260px;
+        overflow-y: auto;
+      }
+      .history-row {
+        padding: 4px 0;
+        border-bottom: 1px dashed #1f2937;
+        cursor: pointer;
+      }
+      .history-row:hover {
+        background: #111827;
+      }
+      .history-row.selected {
+        background: #1f2937;
+      }
+      .history-details h4 {
+        margin: 0 0 4px 0;
+        font-size: 14px;
+      }
+      .history-details p {
+        margin: 2px 0;
+        font-size: 12px;
+        color: #e5e7eb;
+      }
+      .rolls-list {
+        margin-top: 8px;
+        font-size: 12px;
+        border-top: 1px solid #1f2937;
+        padding-top: 6px;
+      }
+      .roll-row {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px dashed #1f2937;
+        padding: 2px 0;
+      }
+      .roll-row:last-child {
+        border-bottom: none;
+      }
 
       /* Visual dice area */
       .faces-section-title {
@@ -280,11 +359,53 @@
       </div>
     </div>
 
+    <!-- History Modal -->
+    <div id="historyBackdrop" class="modal-backdrop">
+      <div class="modal modal-wide">
+        <h3>Game History</h3>
+        <p style="font-size: 12px; color: #9ca3af; margin: 2px 0 10px">
+          Past sessions are shown in New York time (EST/EDT).
+        </p>
+
+        <div class="history-layout">
+          <div class="history-list">
+            <div class="history-list-header">
+              <span>Date/Time</span>
+              <span>Table</span>
+              <span>Check</span>
+              <span>Manager</span>
+              <span>Rolls</span>
+              <span>Status</span>
+            </div>
+            <div id="historyList" class="history-list-body">
+              <!-- Sessions will be rendered here -->
+            </div>
+          </div>
+          <div class="history-details">
+            <div id="historyDetails">
+              <p style="font-size: 13px; color: #9ca3af">
+                Select a session to view its rolls.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="closeHistoryBtn" class="btn" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
     <header>
       <h1>GoDice Restaurant Game</h1>
-      <button id="guidelinesTopBtn" class="btn btn-secondary" type="button">
-        Guidelines
-      </button>
+      <div style="display: flex; gap: 8px">
+        <button id="historyBtn" class="btn btn-secondary" type="button">
+          History
+        </button>
+        <button id="guidelinesTopBtn" class="btn btn-secondary" type="button">
+          Guidelines
+        </button>
+      </div>
     </header>
 
     <main>
@@ -346,6 +467,12 @@
       const connectBtn = document.getElementById("connectBtn");
       const diceList = document.getElementById("diceList");
       const diceFaces = document.getElementById("diceFaces");
+
+      const historyBackdrop = document.getElementById("historyBackdrop");
+      const historyBtn = document.getElementById("historyBtn");
+      const closeHistoryBtn = document.getElementById("closeHistoryBtn");
+      const historyListEl = document.getElementById("historyList");
+      const historyDetailsEl = document.getElementById("historyDetails");
 
       function updateConnectButtonLabel() {
         if (!diceList) return;
@@ -532,6 +659,171 @@
         }
       }
 
+      async function dbGetAllSessions() {
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction("sessions", "readonly");
+          const store = tx.objectStore("sessions");
+          const request = store.getAll();
+          request.onsuccess = () => {
+            const result = request.result || [];
+            // sort by startedAt descending
+            result.sort((a, b) => {
+              if (!a.startedAt && !b.startedAt) return 0;
+              if (!a.startedAt) return 1;
+              if (!b.startedAt) return -1;
+              return a.startedAt < b.startedAt ? 1 : -1;
+            });
+            resolve(result);
+          };
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      async function dbGetRollsForSession(sessionId) {
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction("rolls", "readonly");
+          const store = tx.objectStore("rolls");
+          let request;
+
+          if (store.indexNames.contains("sessionId")) {
+            const idx = store.index("sessionId");
+            request = idx.getAll(IDBKeyRange.only(sessionId));
+          } else {
+            // Fallback: get all and filter
+            request = store.getAll();
+          }
+
+          request.onsuccess = () => {
+            let rows = request.result || [];
+            if (!store.indexNames.contains("sessionId")) {
+              rows = rows.filter((r) => r.sessionId === sessionId);
+            }
+            // sort rolls by timestamp ascending
+            rows.sort((a, b) => {
+              if (!a.timestamp && !b.timestamp) return 0;
+              if (!a.timestamp) return -1;
+              if (!b.timestamp) return 1;
+              return a.timestamp < b.timestamp ? -1 : 1;
+            });
+            resolve(rows);
+          };
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      /**********************************
+       * HISTORY VIEW LOGIC
+       **********************************/
+      function renderHistoryList(sessions) {
+        historyListEl.innerHTML = "";
+        historyDetailsEl.innerHTML =
+          '<p style="font-size:13px; color:#9ca3af;">Select a session to view its rolls.</p>';
+
+        sessions.forEach((s) => {
+          const row = document.createElement("div");
+          row.className = "history-row";
+          row.dataset.sessionId = s.id;
+
+          const started = s.startedAtDisplay || s.startedAt || "";
+          const status = s.status || "ended";
+          const rollsCount = s.rollsCount != null ? s.rollsCount : "-";
+
+          row.innerHTML = `
+            <span>${started}</span>
+            <span>${s.tableNumber || ""}</span>
+            <span>${s.checkNumber || ""}</span>
+            <span>${s.managerName || ""}</span>
+            <span>${rollsCount}</span>
+            <span>${status}</span>
+          `;
+
+          row.addEventListener("click", async () => {
+            document
+              .querySelectorAll(".history-row.selected")
+              .forEach((el) => el.classList.remove("selected"));
+            row.classList.add("selected");
+            await renderHistoryDetails(s.id, s);
+          });
+
+          historyListEl.appendChild(row);
+        });
+
+        if (!sessions.length) {
+          historyDetailsEl.innerHTML =
+            '<p style="font-size:13px; color:#9ca3af;">No sessions recorded yet.</p>';
+        }
+      }
+
+      async function renderHistoryDetails(sessionId, sessionMeta) {
+        try {
+          const rolls = await dbGetRollsForSession(sessionId);
+          const s = sessionMeta;
+
+          const started = s.startedAtDisplay || s.startedAt || "";
+          const ended = s.endedAtDisplay || s.endedAt || "";
+
+          const headerHtml = `
+            <h4>Session Details</h4>
+            <p><strong>Table:</strong> ${s.tableNumber || ""}</p>
+            <p><strong>Check:</strong> ${s.checkNumber || ""}</p>
+            <p><strong>Manager:</strong> ${s.managerName || ""}</p>
+            <p><strong>Started:</strong> ${started}</p>
+            <p><strong>Ended:</strong> ${ended || "-"}</p>
+            <p><strong>Rolls:</strong> ${rolls.length}</p>
+          `;
+
+          if (!rolls.length) {
+            historyDetailsEl.innerHTML =
+              headerHtml +
+              '<div class="rolls-list"><p>No rolls recorded for this session.</p></div>';
+            return;
+          }
+
+          const rollsHtml = rolls
+            .map((r) => {
+              const ts = r.timestampDisplay || r.timestamp || "";
+              return `
+                <div class="roll-row">
+                  <span>${ts}</span>
+                  <span>Die ${r.dieLabel || ""}</span>
+                  <span>Face ${r.face}</span>
+                </div>
+              `;
+            })
+            .join("");
+
+          historyDetailsEl.innerHTML =
+            headerHtml + `<div class="rolls-list">${rollsHtml}</div>`;
+        } catch (e) {
+          console.error("[HISTORY] load rolls failed:", e);
+          historyDetailsEl.innerHTML =
+            '<p style="font-size:13px; color:#fca5a5;">Failed to load rolls for this session.</p>';
+        }
+      }
+
+      async function openHistory() {
+        historyBackdrop.style.display = "flex";
+        historyListEl.innerHTML =
+          '<p style="font-size:13px; color:#9ca3af;">Loading…</p>';
+        historyDetailsEl.innerHTML =
+          '<p style="font-size:13px; color:#9ca3af;">Select a session to view its rolls.</p>';
+
+        try {
+          const sessions = await dbGetAllSessions();
+          renderHistoryList(sessions);
+        } catch (e) {
+          console.error("[HISTORY] load sessions failed:", e);
+          historyListEl.innerHTML =
+            '<p style="font-size:13px; color:#fca5a5;">Failed to load sessions.</p>';
+        }
+      }
+
+      function closeHistory() {
+        historyBackdrop.style.display = "none";
+      }
+
       /**********************************
        * MANAGERS (static list for now)
        **********************************/
@@ -564,6 +856,15 @@
       closeGuidelinesBtn.addEventListener("click", closeGuidelines);
       guidelinesBackdrop.addEventListener("click", (e) => {
         if (e.target === guidelinesBackdrop) closeGuidelines();
+      });
+
+      /**********************************
+       * HISTORY MODAL EVENTS
+       **********************************/
+      historyBtn.addEventListener("click", openHistory);
+      closeHistoryBtn.addEventListener("click", closeHistory);
+      historyBackdrop.addEventListener("click", (e) => {
+        if (e.target === historyBackdrop) closeHistory();
       });
 
       /**********************************
