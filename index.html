@@ -420,16 +420,27 @@
           const db = await openDatabase();
           const tx = db.transaction("sessions", "readwrite");
           const store = tx.objectStore("sessions");
+
+          const startedDate = new Date(session.startedAt);
+          const startedAtDisplay = startedDate.toLocaleString(undefined, {
+            dateStyle: "short",
+            timeStyle: "medium",
+            timeZone: "America/New_York",
+          });
+
           const record = {
             id: session.id,
-            startedAt: session.startedAt,
+            startedAt: session.startedAt, // ISO (machine-friendly)
+            startedAtDisplay, // human-friendly
             endedAt: null,
+            endedAtDisplay: null,
             tableNumber: session.tableNumber,
             checkNumber: session.checkNumber,
             managerId: session.managerId,
             managerName: session.managerName,
             status: "active",
           };
+
           store.put(record);
           tx.oncomplete = () => console.log("[DB] session start saved", record);
           tx.onerror = () =>
@@ -444,10 +455,27 @@
           const db = await openDatabase();
           const tx = db.transaction("sessions", "readwrite");
           const store = tx.objectStore("sessions");
+
+          const startedDate = new Date(sessionSummary.startedAt);
+          const endedDate = new Date(sessionSummary.endedAt);
+
+          const startedAtDisplay = startedDate.toLocaleString(undefined, {
+            dateStyle: "short",
+            timeStyle: "medium",
+            timeZone: "America/New_York",
+          });
+          const endedAtDisplay = endedDate.toLocaleString(undefined, {
+            dateStyle: "short",
+            timeStyle: "medium",
+            timeZone: "America/New_York",
+          });
+
           const record = {
             id: sessionSummary.id,
-            startedAt: sessionSummary.startedAt,
-            endedAt: sessionSummary.endedAt,
+            startedAt: sessionSummary.startedAt, // ISO
+            startedAtDisplay, // human-readable
+            endedAt: sessionSummary.endedAt, // ISO
+            endedAtDisplay, // human-readable
             tableNumber: sessionSummary.tableNumber,
             checkNumber: sessionSummary.checkNumber,
             managerId: sessionSummary.managerId,
@@ -455,7 +483,8 @@
             status: "ended",
             rollsCount: sessionSummary.rolls ? sessionSummary.rolls.length : 0,
           };
-          store.put(record); // overwrites existing record with same id
+
+          store.put(record);
           tx.oncomplete = () => console.log("[DB] session end saved", record);
           tx.onerror = () =>
             console.error("[DB] session end save failed", tx.error);
@@ -473,10 +502,19 @@
           const db = await openDatabase();
           const tx = db.transaction("rolls", "readwrite");
           const store = tx.objectStore("rolls");
+
+          const tsDate = new Date(rollRecord.timestamp);
+          const timestampDisplay = tsDate.toLocaleString(undefined, {
+            dateStyle: "short",
+            timeStyle: "medium",
+            timeZone: "America/New_York",
+          });
+
           const record = {
             id: makeRollId(),
             sessionId,
-            timestamp: rollRecord.timestamp,
+            timestamp: rollRecord.timestamp, // ISO
+            timestampDisplay, // human-readable
             tableNumber: rollRecord.tableNumber,
             checkNumber: rollRecord.checkNumber,
             managerId: rollRecord.managerId,
@@ -485,6 +523,7 @@
             dieLabel: rollRecord.dieLabel,
             face: rollRecord.face,
           };
+
           store.put(record);
           tx.oncomplete = () => console.log("[DB] roll saved", record);
           tx.onerror = () => console.error("[DB] roll save failed", tx.error);
