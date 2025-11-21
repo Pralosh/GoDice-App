@@ -174,8 +174,8 @@
         text-align: right;
       }
       .modal-wide {
-        width: 640px;
-        max-height: 80vh;
+        width: min(800px, 95vw);
+        max-height: 90vh;
         display: flex;
         flex-direction: column;
       }
@@ -203,7 +203,7 @@
         display: grid;
         grid-template-columns: 1.6fr 0.7fr 0.9fr 1.3fr 0.6fr 0.9fr;
         column-gap: 6px;
-        font-size: 12px;
+        font-size: 13px;
         align-items: center;
       }
       .history-list-header {
@@ -230,16 +230,16 @@
       }
       .history-details h4 {
         margin: 0 0 4px 0;
-        font-size: 14px;
+        font-size: 15px;
       }
       .history-details p {
         margin: 2px 0;
-        font-size: 12px;
+        font-size: 13px;
         color: #e5e7eb;
       }
       .rolls-list {
         margin-top: 8px;
-        font-size: 12px;
+        font-size: 13px;
         border-top: 1px solid #1f2937;
         padding-top: 6px;
       }
@@ -321,6 +321,13 @@
         <div class="overlay-actions">
           <button id="guidelinesBtn" class="btn btn-secondary" type="button">
             Guidelines
+          </button>
+          <button
+            id="overlayHistoryBtn"
+            class="btn btn-secondary"
+            type="button"
+          >
+            History
           </button>
           <button id="startSessionBtn" class="btn" type="button">
             Start Game
@@ -461,6 +468,8 @@
       const guidelinesBtn = document.getElementById("guidelinesBtn");
       const guidelinesTopBtn = document.getElementById("guidelinesTopBtn");
       const closeGuidelinesBtn = document.getElementById("closeGuidelinesBtn");
+
+      const overlayHistoryBtn = document.getElementById("overlayHistoryBtn");
 
       const sessionInfo = document.getElementById("sessionInfo");
       const endSessionBtn = document.getElementById("endSessionBtn");
@@ -861,6 +870,7 @@
       /**********************************
        * HISTORY MODAL EVENTS
        **********************************/
+      overlayHistoryBtn.addEventListener("click", openHistory);
       historyBtn.addEventListener("click", openHistory);
       closeHistoryBtn.addEventListener("click", closeHistory);
       historyBackdrop.addEventListener("click", (e) => {
