@@ -179,6 +179,35 @@
         display: flex;
         flex-direction: column;
       }
+      .password-modal {
+        width: min(360px, 95vw);
+      }
+      .password-input-row {
+        display: flex;
+        gap: 6px;
+        margin-top: 2px;
+      }
+      .password-input {
+        flex: 1;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #4b5563;
+        background: #020617;
+        color: #f9fafb;
+        font-size: 13px;
+      }
+      .password-toggle {
+        white-space: nowrap;
+        font-size: 12px;
+        padding-inline: 8px;
+      }
+      .password-modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
       .history-layout {
         display: flex;
         gap: 12px;
@@ -437,6 +466,52 @@
       </div>
     </div>
 
+    <!-- Export Password Modal -->
+    <div id="exportPasswordBackdrop" class="modal-backdrop">
+      <div class="modal password-modal">
+        <h3>Admin Export</h3>
+        <p style="font-size: 13px; color: #9ca3af; margin: 2px 0 10px">
+          Enter the admin password to export records.
+        </p>
+
+        <div class="field">
+          <label for="exportPasswordInput" style="font-size: 13px"
+            >Password</label
+          >
+          <div class="password-input-row">
+            <input
+              id="exportPasswordInput"
+              type="password"
+              autocomplete="off"
+              class="password-input"
+            />
+            <button
+              id="exportPasswordShowBtn"
+              class="btn btn-secondary password-toggle"
+              type="button"
+            >
+              Show
+            </button>
+          </div>
+        </div>
+
+        <div id="exportPasswordError" class="error-text"></div>
+
+        <div class="password-modal-footer">
+          <button
+            id="exportPasswordCancelBtn"
+            class="btn btn-secondary"
+            type="button"
+          >
+            Cancel
+          </button>
+          <button id="exportPasswordSubmitBtn" class="btn" type="button">
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+
     <header>
       <h1>GoDice Restaurant Game</h1>
       <div style="display: flex; gap: 8px">
@@ -491,6 +566,75 @@
       // Currently selected session in the History modal (for CSV export)
       let currentHistorySessionMeta = null;
 
+      // --- Export protection (simple front-end password gate) ---
+      const EXPORT_PASSWORD = "ADMIN1234"; // change this to your real password
+      let exportUnlocked = false;
+      let exportPasswordResolve = null;
+      let exportPasswordVisible = false;
+
+      function openExportPasswordModal() {
+        exportPasswordError.textContent = "";
+        exportPasswordInput.value = "";
+        exportPasswordInput.type = "password";
+        exportPasswordVisible = false;
+        exportPasswordShowBtn.textContent = "Show";
+
+        exportPasswordBackdrop.style.display = "flex";
+        setTimeout(() => exportPasswordInput.focus(), 10);
+      }
+
+      function closeExportPasswordModal() {
+        exportPasswordBackdrop.style.display = "none";
+        // If we close without explicitly resolving, treat as "cancel"
+        if (exportPasswordResolve) {
+          exportPasswordResolve(false);
+          exportPasswordResolve = null;
+        }
+      }
+
+      function handleExportPasswordSubmit() {
+        const value = exportPasswordInput.value;
+        if (!value) {
+          exportPasswordError.textContent = "Please enter a password.";
+          return;
+        }
+
+        if (value === EXPORT_PASSWORD) {
+          exportUnlocked = true;
+          exportPasswordBackdrop.style.display = "none";
+          if (exportPasswordResolve) {
+            exportPasswordResolve(true);
+            exportPasswordResolve = null;
+          }
+        } else {
+          exportPasswordError.textContent = "Incorrect password.";
+        }
+      }
+
+      function handleExportPasswordCancel() {
+        exportPasswordBackdrop.style.display = "none";
+        if (exportPasswordResolve) {
+          exportPasswordResolve(false);
+          exportPasswordResolve = null;
+        }
+      }
+
+      /**
+       * Returns a Promise<boolean>:
+       *  - true if password ok (or already unlocked)
+       *  - false if cancelled / incorrect
+       */
+      function requireExportPassword() {
+        if (exportUnlocked) {
+          return Promise.resolve(true);
+        }
+
+        return new Promise((resolve) => {
+          exportPasswordResolve = resolve;
+          openExportPasswordModal();
+        });
+      }
+
       /**********************************
        * DOM ELEMENTS
        **********************************/
@@ -522,6 +666,25 @@
 
       const exportAllBtn = document.getElementById("exportAllBtn");
       const exportSessionBtn = document.getElementById("exportSessionBtn");
+
+      const exportPasswordBackdrop = document.getElementById(
+        "exportPasswordBackdrop"
+      );
+      const exportPasswordInput = document.getElementById(
+        "exportPasswordInput"
+      );
+      const exportPasswordError = document.getElementById(
+        "exportPasswordError"
+      );
+      const exportPasswordShowBtn = document.getElementById(
+        "exportPasswordShowBtn"
+      );
+      const exportPasswordSubmitBtn = document.getElementById(
+        "exportPasswordSubmitBtn"
+      );
+      const exportPasswordCancelBtn = document.getElementById(
+        "exportPasswordCancelBtn"
+      );
 
       function updateConnectButtonLabel() {
         if (!diceList) return;
@@ -899,9 +1062,20 @@
 
       function closeHistory() {
         historyBackdrop.style.display = "none";
+
+        // Reset export unlock when History is closed
+        exportUnlocked = false;
+
+        // If the password modal is open for some reason, cancel it too
+        if (exportPasswordBackdrop.style.display === "flex") {
+          handleExportPasswordCancel();
+        }
       }
 
       async function handleExportAllSessions() {
+        const ok = await requireExportPassword();
+        if (!ok) return;
+
         try {
           exportAllBtn.disabled = true;
           exportAllBtn.textContent = "Exporting…";
@@ -990,6 +1164,9 @@
           alert("Please select a session first.");
           return;
         }
+
+        const ok = await requireExportPassword();
+        if (!ok) return;
 
         try {
           exportSessionBtn.disabled = true;
@@ -1114,6 +1291,40 @@
 
       exportAllBtn.addEventListener("click", handleExportAllSessions);
       exportSessionBtn.addEventListener("click", handleExportSelectedSession);
+
+      /**********************************
+       * EXPORT PASSWORD MODAL EVENTS
+       **********************************/
+      exportPasswordShowBtn.addEventListener("click", () => {
+        exportPasswordVisible = !exportPasswordVisible;
+        exportPasswordInput.type = exportPasswordVisible ? "text" : "password";
+        exportPasswordShowBtn.textContent = exportPasswordVisible
+          ? "Hide"
+          : "Show";
+      });
+
+      exportPasswordSubmitBtn.addEventListener(
+        "click",
+        handleExportPasswordSubmit
+      );
+      exportPasswordCancelBtn.addEventListener(
+        "click",
+        handleExportPasswordCancel
+      );
+
+      exportPasswordBackdrop.addEventListener("click", (e) => {
+        if (e.target === exportPasswordBackdrop) {
+          handleExportPasswordCancel();
+        }
+      });
+
+      // Allow Enter key to submit password
+      exportPasswordInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          handleExportPasswordSubmit();
+        }
+      });
 
       /**********************************
        * SESSION HELPERS
