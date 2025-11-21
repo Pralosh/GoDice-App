@@ -358,6 +358,142 @@
       }
 
       /**********************************
+       * INDEXEDDB HELPERS (local storage)
+       **********************************/
+      let dbPromise = null;
+
+      function hasIndexedDB() {
+        return !!window.indexedDB;
+      }
+
+      function openDatabase() {
+        if (!hasIndexedDB()) {
+          console.warn("[DB] indexedDB not available in this browser.");
+          return Promise.reject(new Error("IndexedDB not supported"));
+        }
+
+        if (dbPromise) return dbPromise;
+
+        dbPromise = new Promise((resolve, reject) => {
+          const request = window.indexedDB.open("GoDiceDB", 1);
+
+          request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            // sessions store
+            if (!db.objectStoreNames.contains("sessions")) {
+              const sStore = db.createObjectStore("sessions", {
+                keyPath: "id",
+              });
+              sStore.createIndex("startedAt", "startedAt", { unique: false });
+              sStore.createIndex("tableNumber", "tableNumber", {
+                unique: false,
+              });
+              sStore.createIndex("checkNumber", "checkNumber", {
+                unique: false,
+              });
+              sStore.createIndex("managerId", "managerId", { unique: false });
+              sStore.createIndex("status", "status", { unique: false });
+            }
+            // rolls store
+            if (!db.objectStoreNames.contains("rolls")) {
+              const rStore = db.createObjectStore("rolls", { keyPath: "id" });
+              rStore.createIndex("sessionId", "sessionId", { unique: false });
+              rStore.createIndex("timestamp", "timestamp", { unique: false });
+              rStore.createIndex("dieId", "dieId", { unique: false });
+            }
+          };
+
+          request.onsuccess = () => {
+            resolve(request.result);
+          };
+          request.onerror = () => {
+            console.error("[DB] open error:", request.error);
+            reject(request.error);
+          };
+        });
+
+        return dbPromise;
+      }
+
+      async function dbSaveSessionStart(session) {
+        try {
+          const db = await openDatabase();
+          const tx = db.transaction("sessions", "readwrite");
+          const store = tx.objectStore("sessions");
+          const record = {
+            id: session.id,
+            startedAt: session.startedAt,
+            endedAt: null,
+            tableNumber: session.tableNumber,
+            checkNumber: session.checkNumber,
+            managerId: session.managerId,
+            managerName: session.managerName,
+            status: "active",
+          };
+          store.put(record);
+          tx.oncomplete = () => console.log("[DB] session start saved", record);
+          tx.onerror = () =>
+            console.error("[DB] session start save failed", tx.error);
+        } catch (e) {
+          console.warn("[DB] session start not saved:", e?.message || e);
+        }
+      }
+
+      async function dbSaveSessionEnd(sessionSummary) {
+        try {
+          const db = await openDatabase();
+          const tx = db.transaction("sessions", "readwrite");
+          const store = tx.objectStore("sessions");
+          const record = {
+            id: sessionSummary.id,
+            startedAt: sessionSummary.startedAt,
+            endedAt: sessionSummary.endedAt,
+            tableNumber: sessionSummary.tableNumber,
+            checkNumber: sessionSummary.checkNumber,
+            managerId: sessionSummary.managerId,
+            managerName: sessionSummary.managerName,
+            status: "ended",
+            rollsCount: sessionSummary.rolls ? sessionSummary.rolls.length : 0,
+          };
+          store.put(record); // overwrites existing record with same id
+          tx.oncomplete = () => console.log("[DB] session end saved", record);
+          tx.onerror = () =>
+            console.error("[DB] session end save failed", tx.error);
+        } catch (e) {
+          console.warn("[DB] session end not saved:", e?.message || e);
+        }
+      }
+
+      function makeRollId() {
+        return "roll_" + Date.now() + "_" + Math.random().toString(16).slice(2);
+      }
+
+      async function dbSaveRoll(sessionId, rollRecord) {
+        try {
+          const db = await openDatabase();
+          const tx = db.transaction("rolls", "readwrite");
+          const store = tx.objectStore("rolls");
+          const record = {
+            id: makeRollId(),
+            sessionId,
+            timestamp: rollRecord.timestamp,
+            tableNumber: rollRecord.tableNumber,
+            checkNumber: rollRecord.checkNumber,
+            managerId: rollRecord.managerId,
+            managerName: rollRecord.managerName,
+            dieId: rollRecord.dieId,
+            dieLabel: rollRecord.dieLabel,
+            face: rollRecord.face,
+          };
+          store.put(record);
+          tx.oncomplete = () => console.log("[DB] roll saved", record);
+          tx.onerror = () => console.error("[DB] roll save failed", tx.error);
+        } catch (e) {
+          console.warn("[DB] roll not saved:", e?.message || e);
+        }
+      }
+
+      /**********************************
        * MANAGERS (static list for now)
        **********************************/
       const MANAGERS = [
@@ -432,6 +568,7 @@
         sessionState.rolls = []; // reset in-memory rolls
 
         console.log("[SESSION STARTED]", sessionState.current);
+        dbSaveSessionStart(sessionState.current);
 
         // Reset labels and dice UI at the start of each game
         resetLabelGen();
@@ -455,6 +592,7 @@
         };
 
         console.log("[SESSION ENDED]", summary);
+        dbSaveSessionEnd(summary);
 
         // Disconnect all dice at end of game
         disconnectAllDice();
@@ -509,6 +647,7 @@
 
         sessionState.rolls.push(record);
         console.log("[ROLL RECORDED]", record);
+        dbSaveRoll(s.id, record);
       }
 
       /**********************************
