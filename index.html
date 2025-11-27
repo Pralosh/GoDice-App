@@ -179,6 +179,52 @@
         display: flex;
         flex-direction: column;
       }
+      .reward-modal {
+        width: min(420px, 95vw);
+        text-align: center;
+      }
+      .reward-subtitle {
+        font-size: 19px;
+        color: #9ca3af;
+        margin: 2px 0 10px;
+      }
+      .reward-main {
+        margin-top: 13px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: center;
+      }
+      .reward-sum {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 14px;
+        border-radius: 999px;
+        border: 1px solid #4b5563;
+        background: #020617;
+      }
+      .reward-sum-label {
+        font-size: 16px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #9ca3af;
+      }
+      .reward-sum-value {
+        font-size: 36px;
+        font-weight: 700;
+        margin-top: 2px;
+        color: #f9fafb;
+      }
+      .reward-text {
+        font-size: 21px;
+        color: #f9fafb;
+      }
+      .reward-rolls {
+        font-size: 18px;
+        color: #9ca3af;
+      }
       .password-modal {
         width: min(360px, 95vw);
       }
@@ -466,6 +512,35 @@
       </div>
     </div>
 
+    <!-- Reward Modal -->
+    <div id="rewardBackdrop" class="modal-backdrop">
+      <div class="modal reward-modal">
+        <h3>Reward Result</h3>
+        <p class="reward-subtitle">Two rolls recorded. Game complete.</p>
+
+        <div class="reward-main">
+          <div class="reward-sum">
+            <span class="reward-sum-label">Total</span>
+            <span id="rewardSum" class="reward-sum-value">--</span>
+          </div>
+
+          <div id="rewardText" class="reward-text">
+            <!-- reward description -->
+          </div>
+
+          <div id="rewardRolls" class="reward-rolls">
+            <!-- details of the two rolls -->
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="rewardCloseBtn" class="btn" type="button">
+            OK - End Game
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Export Password Modal -->
     <div id="exportPasswordBackdrop" class="modal-backdrop">
       <div class="modal password-modal">
@@ -565,6 +640,31 @@
 
       // Currently selected session in the History modal (for CSV export)
       let currentHistorySessionMeta = null;
+
+      // Simple reward configuration by sum of the two dice
+      const REWARDS_BY_SUM = {
+        2: "On the house (100% off the check)",
+        3: "75% off the check",
+        4: "50% off the check",
+        5: "40% off the check",
+        6: "30% off the check",
+        7: "No discount (better luck next time!)",
+        8: "10% off the check",
+        9: "15% off the check",
+        10: "20% off the check",
+        11: "25% off the check",
+        12: "On the house (jackpot!)",
+      };
+
+      function getRewardForSum(sum) {
+        return (
+          REWARDS_BY_SUM[sum] ||
+          "No configured reward for this total. Please check game rules."
+        );
+      }
+
+      // Track if this game has already been completed (2 rolls reached)
+      let gameCompleted = false;
 
       // --- Export protection (simple front-end password gate) ---
       const EXPORT_PASSWORD = "ADMIN1234"; // change this to your real password
@@ -666,6 +766,12 @@
 
       const exportAllBtn = document.getElementById("exportAllBtn");
       const exportSessionBtn = document.getElementById("exportSessionBtn");
+
+      const rewardBackdrop = document.getElementById("rewardBackdrop");
+      const rewardSumEl = document.getElementById("rewardSum");
+      const rewardTextEl = document.getElementById("rewardText");
+      const rewardRollsEl = document.getElementById("rewardRolls");
+      const rewardCloseBtn = document.getElementById("rewardCloseBtn");
 
       const exportPasswordBackdrop = document.getElementById(
         "exportPasswordBackdrop"
@@ -1293,6 +1399,42 @@
       exportSessionBtn.addEventListener("click", handleExportSelectedSession);
 
       /**********************************
+       * REWARD MODAL LOGIC
+       **********************************/
+      function openRewardModal(sum, rewardText, firstRoll, secondRoll) {
+        rewardSumEl.textContent = sum;
+        rewardTextEl.textContent = rewardText;
+
+        if (firstRoll && secondRoll) {
+          rewardRollsEl.innerHTML = `
+            <div>Roll 1 - Die ${firstRoll.dieLabel || ""}: face ${
+            firstRoll.face
+          }</div>
+            <div>Roll 2 - Die ${secondRoll.dieLabel || ""}: face ${
+            secondRoll.face
+          }</div>
+          `;
+        } else {
+          rewardRollsEl.textContent = "";
+        }
+
+        rewardBackdrop.style.display = "flex";
+      }
+
+      // Close reward modal and automatically end the game
+      function closeRewardAndEndGame() {
+        rewardBackdrop.style.display = "none";
+        endSession(); // will do the normal cleanup, disconnects, overlay, DB save
+      }
+
+      rewardCloseBtn.addEventListener("click", closeRewardAndEndGame);
+      rewardBackdrop.addEventListener("click", (e) => {
+        if (e.target === rewardBackdrop) {
+          closeRewardAndEndGame();
+        }
+      });
+
+      /**********************************
        * EXPORT PASSWORD MODAL EVENTS
        **********************************/
       exportPasswordShowBtn.addEventListener("click", () => {
@@ -1365,6 +1507,7 @@
           managerName: manager.name,
         };
         sessionState.rolls = []; // reset in-memory rolls
+        gameCompleted = false; // ✅ reset at start of each game
 
         console.log("[SESSION STARTED]", sessionState.current);
         dbSaveSessionStart(sessionState.current);
@@ -1412,6 +1555,8 @@
         checkInput.value = "";
         managerSelect.value = "";
         overlayError.textContent = "";
+
+        gameCompleted = false; // ✅ keep state clean for next time
       }
 
       endSessionBtn.addEventListener("click", endSession);
@@ -1447,6 +1592,17 @@
         sessionState.rolls.push(record);
         console.log("[ROLL RECORDED]", record);
         dbSaveRoll(s.id, record);
+
+        if (sessionState.rolls.length === 2) {
+          gameCompleted = true;
+
+          const [firstRoll, secondRoll] = sessionState.rolls;
+          const sum = (firstRoll.face || 0) + (secondRoll.face || 0);
+          const rewardText = getRewardForSum(sum);
+
+          console.log("[REWARD] total:", sum, "reward:", rewardText);
+          openRewardModal(sum, rewardText, firstRoll, secondRoll);
+        }
       }
 
       /**********************************
@@ -1553,8 +1709,8 @@
         }
       });
 
-      // Inactivity (you can tweak this as you like; you mentioned ~1 minute)
-      const INACTIVITY_MS = 100000;
+      // Inactivity (Back to 30sec)
+      const INACTIVITY_MS = 30000;
 
       function markActive(diceId) {
         const st = diceState.get(diceId);
