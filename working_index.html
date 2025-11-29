@@ -3,30 +3,1617 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GoDice Test</title>
-    <link rel="icon" href="./favicon.ico" />
+    <title>GoDice Restaurant Game</title>
+    <style>
+      body {
+        font-family: system-ui, Arial, sans-serif;
+        margin: 0;
+        background: #0b1020;
+        color: #f9fafb;
+      }
+      header {
+        padding: 16px 20px;
+        border-bottom: 1px solid #111827;
+        background: radial-gradient(circle at top, #1f2937, #020617);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      h1 {
+        margin: 0;
+        font-size: 20px;
+      }
+      main {
+        padding: 16px 20px 32px;
+      }
+
+      .btn {
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid #4b5563;
+        background: #111827;
+        color: #f9fafb;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      .btn[disabled] {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .btn-secondary {
+        background: #020617;
+      }
+
+      .top-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      #sessionInfo {
+        font-size: 14px;
+        color: #e5e7eb;
+      }
+
+      #diceList {
+        margin-top: 12px;
+      }
+      .card {
+        border: 1px solid #374151;
+        background: #020617;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 10px 0;
+        max-width: 480px;
+        transition: opacity 0.3s ease;
+      }
+      .card h3 {
+        margin: 0 0 4px 0;
+        font-size: 16px;
+      }
+      .line {
+        font-size: 13px;
+        color: #e5e7eb;
+        margin: 2px 0;
+      }
+      .muted {
+        opacity: 0.5;
+      }
+
+      /* Start Game overlay */
+      .overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.9);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+      .overlay-card {
+        background: #020617;
+        border-radius: 12px;
+        padding: 20px;
+        width: 320px;
+        border: 1px solid #4b5563;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      }
+      .overlay-card h2 {
+        margin: 0 0 8px 0;
+        font-size: 18px;
+      }
+      .overlay-card p {
+        margin: 0 0 12px 0;
+        font-size: 13px;
+        color: #e5e7eb;
+      }
+      .field {
+        margin-bottom: 10px;
+      }
+      .field label {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 2px;
+      }
+      .field input,
+      .field select {
+        width: 100%;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #4b5563;
+        background: #020617;
+        color: #f9fafb;
+        font-size: 13px;
+      }
+      .error-text {
+        color: #fca5a5;
+        font-size: 12px;
+        min-height: 16px;
+      }
+      .overlay-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 12px;
+      }
+
+      /* Guidelines modal */
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.85);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1100;
+      }
+      .modal {
+        background: #020617;
+        border-radius: 12px;
+        padding: 20px;
+        width: 360px;
+        border: 1px solid #4b5563;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      }
+      .modal h3 {
+        margin: 0 0 8px 0;
+        font-size: 16px;
+      }
+      .modal p,
+      .modal ul {
+        font-size: 13px;
+        color: #e5e7eb;
+        margin: 4px 0;
+      }
+      .modal ul {
+        padding-left: 18px;
+      }
+      .modal-footer {
+        margin-top: 12px;
+        text-align: right;
+      }
+      .modal-wide {
+        width: min(800px, 95vw);
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .reward-modal {
+        width: min(420px, 95vw);
+        text-align: center;
+      }
+      .reward-subtitle {
+        font-size: 19px;
+        color: #9ca3af;
+        margin: 2px 0 10px;
+      }
+      .reward-main {
+        margin-top: 13px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: center;
+      }
+      .reward-sum {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 14px;
+        border-radius: 999px;
+        border: 1px solid #4b5563;
+        background: #020617;
+      }
+      .reward-sum-label {
+        font-size: 16px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #9ca3af;
+      }
+      .reward-sum-value {
+        font-size: 36px;
+        font-weight: 700;
+        margin-top: 2px;
+        color: #f9fafb;
+      }
+      .reward-text {
+        font-size: 21px;
+        color: #f9fafb;
+      }
+      .reward-rolls {
+        font-size: 18px;
+        color: #9ca3af;
+      }
+      .password-modal {
+        width: min(360px, 95vw);
+      }
+      .password-input-row {
+        display: flex;
+        gap: 6px;
+        margin-top: 2px;
+      }
+      .password-input {
+        flex: 1;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #4b5563;
+        background: #020617;
+        color: #f9fafb;
+        font-size: 13px;
+      }
+      .password-toggle {
+        white-space: nowrap;
+        font-size: 12px;
+        padding-inline: 8px;
+      }
+      .password-modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .history-layout {
+        display: flex;
+        gap: 12px;
+        margin-top: 8px;
+        flex: 1;
+        min-height: 220px;
+      }
+      .history-list {
+        flex: 1.4;
+        border-right: 1px solid #1f2937;
+        padding-right: 8px;
+        overflow-y: auto;
+      }
+      .history-details {
+        flex: 1;
+        padding-left: 8px;
+        overflow-y: auto;
+        border-left: 1px solid #1f2937;
+      }
+      .history-list-header,
+      .history-row {
+        display: grid;
+        grid-template-columns: 1.6fr 0.7fr 0.9fr 1.3fr 0.6fr 0.9fr;
+        column-gap: 6px;
+        font-size: 13px;
+        align-items: center;
+      }
+      .history-list-header {
+        font-weight: 600;
+        color: #e5e7eb;
+        border-bottom: 1px solid #374151;
+        padding-bottom: 4px;
+        margin-bottom: 4px;
+      }
+      .history-list-body {
+        max-height: 260px;
+        overflow-y: auto;
+      }
+      .history-row {
+        padding: 4px 0;
+        border-bottom: 1px dashed #1f2937;
+        cursor: pointer;
+      }
+      .history-row:hover {
+        background: #111827;
+      }
+      .history-row.selected {
+        background: #1f2937;
+      }
+      .history-details h4 {
+        margin: 0 0 4px 0;
+        font-size: 15px;
+      }
+      .history-details p {
+        margin: 2px 0;
+        font-size: 13px;
+        color: #e5e7eb;
+      }
+      .history-header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .history-header-row h3 {
+        margin-bottom: 4px;
+      }
+      .history-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+
+      .rolls-list {
+        margin-top: 8px;
+        font-size: 13px;
+        border-top: 1px solid #1f2937;
+        padding-top: 6px;
+      }
+      .roll-row {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px dashed #1f2937;
+        padding: 2px 0;
+      }
+      .roll-row:last-child {
+        border-bottom: none;
+      }
+
+      /* Visual dice area */
+      .faces-section-title {
+        margin: 20px 0 8px 0;
+        font-size: 16px;
+      }
+      #diceFaces {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+      }
+      .dice-face {
+        text-align: center;
+        color: #e5e7eb;
+      }
+      .dice-face-label {
+        font-size: 14px;
+        margin-bottom: 4px;
+      }
+      .dice-square {
+        width: 80px;
+        height: 80px;
+        border-radius: 12px;
+        border: 2px solid #e5e7eb;
+        background: #111827;
+        box-shadow: 0 0 0 2px #1f2937;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+      }
+      .dice-square-value {
+        font-size: 32px;
+        font-weight: 700;
+      }
+      .dice-face-value {
+        font-size: 14px;
+      }
+    </style>
   </head>
   <body>
-    <h1>GoDice Connection Test</h1>
-    <button id="connectBtn">Connect Die</button>
-    <div id="diceList" style="margin-top: 16px"></div>
+    <!-- Start Game Overlay -->
+    <div id="startOverlay" class="overlay">
+      <div class="overlay-card">
+        <h2>Start Dice Game</h2>
+        <p>Enter details for this table before starting the game.</p>
+
+        <div class="field">
+          <label for="tableInput">Table number</label>
+          <input id="tableInput" type="text" placeholder="e.g. 12" />
+        </div>
+
+        <div class="field">
+          <label for="checkInput">Check number</label>
+          <input id="checkInput" type="text" placeholder="e.g. 43821" />
+        </div>
+
+        <div class="field">
+          <label for="managerSelect">Manager</label>
+          <select id="managerSelect">
+            <option value="">Select manager</option>
+          </select>
+        </div>
+
+        <div id="overlayError" class="error-text"></div>
+
+        <div class="overlay-actions">
+          <button id="guidelinesBtn" class="btn btn-secondary" type="button">
+            Guidelines
+          </button>
+          <button
+            id="overlayHistoryBtn"
+            class="btn btn-secondary"
+            type="button"
+          >
+            History
+          </button>
+          <button id="startSessionBtn" class="btn" type="button">
+            Start Game
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Guidelines Modal -->
+    <div id="guidelinesBackdrop" class="modal-backdrop">
+      <div class="modal">
+        <h3>Game Guidelines</h3>
+        <p>This information is for servers and managers.</p>
+        <ul>
+          <li>
+            Guests can play once at the end of their meal, before payment.
+          </li>
+          <li>
+            Use the physical GoDice provided; do not substitute other dice.
+          </li>
+          <li>Each roll is tied to this table and check number for records.</li>
+          <li>
+            Rewards are applied based on the rolled value according to internal
+            policy.
+          </li>
+          <li>
+            Do not change table or check after starting; end the game and start
+            a new one if needed.
+          </li>
+        </ul>
+        <div class="modal-footer">
+          <button id="closeGuidelinesBtn" class="btn" type="button">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Modal -->
+    <div id="historyBackdrop" class="modal-backdrop">
+      <div class="modal modal-wide">
+        <div class="history-header-row">
+          <div>
+            <h3>Game History</h3>
+            <p style="font-size: 12px; color: #9ca3af; margin: 2px 0 10px">
+              Past sessions are shown in New York time (EST/EDT).
+            </p>
+          </div>
+          <div class="history-actions">
+            <button id="exportAllBtn" class="btn btn-secondary" type="button">
+              Export All (CSV)
+            </button>
+            <button
+              id="exportSessionBtn"
+              class="btn btn-secondary"
+              type="button"
+              disabled
+            >
+              Export Session (CSV)
+            </button>
+          </div>
+        </div>
+
+        <div class="history-layout">
+          <div class="history-list">
+            <div class="history-list-header">
+              <span>Date/Time</span>
+              <span>Table</span>
+              <span>Check</span>
+              <span>Manager</span>
+              <span>Rolls</span>
+              <span>Status</span>
+            </div>
+            <div id="historyList" class="history-list-body">
+              <!-- Sessions will be rendered here -->
+            </div>
+          </div>
+          <div class="history-details">
+            <div id="historyDetails">
+              <p style="font-size: 13px; color: #9ca3af">
+                Select a session to view its rolls.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="closeHistoryBtn" class="btn" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reward Modal -->
+    <div id="rewardBackdrop" class="modal-backdrop">
+      <div class="modal reward-modal">
+        <h3>Reward Result</h3>
+        <p class="reward-subtitle">Two rolls recorded. Game complete.</p>
+
+        <div class="reward-main">
+          <div class="reward-sum">
+            <span class="reward-sum-label">Total</span>
+            <span id="rewardSum" class="reward-sum-value">--</span>
+          </div>
+
+          <div id="rewardText" class="reward-text">
+            <!-- reward description -->
+          </div>
+
+          <div id="rewardRolls" class="reward-rolls">
+            <!-- details of the two rolls -->
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="rewardCloseBtn" class="btn" type="button">
+            OK - End Game
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export Password Modal -->
+    <div id="exportPasswordBackdrop" class="modal-backdrop">
+      <div class="modal password-modal">
+        <h3>Admin Export</h3>
+        <p style="font-size: 13px; color: #9ca3af; margin: 2px 0 10px">
+          Enter the admin password to export records.
+        </p>
+
+        <div class="field">
+          <label for="exportPasswordInput" style="font-size: 13px"
+            >Password</label
+          >
+          <div class="password-input-row">
+            <input
+              id="exportPasswordInput"
+              type="password"
+              autocomplete="off"
+              class="password-input"
+            />
+            <button
+              id="exportPasswordShowBtn"
+              class="btn btn-secondary password-toggle"
+              type="button"
+            >
+              Show
+            </button>
+          </div>
+        </div>
+
+        <div id="exportPasswordError" class="error-text"></div>
+
+        <div class="password-modal-footer">
+          <button
+            id="exportPasswordCancelBtn"
+            class="btn btn-secondary"
+            type="button"
+          >
+            Cancel
+          </button>
+          <button id="exportPasswordSubmitBtn" class="btn" type="button">
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <header>
+      <h1>GoDice Restaurant Game</h1>
+      <div style="display: flex; gap: 8px">
+        <button id="historyBtn" class="btn btn-secondary" type="button">
+          History
+        </button>
+        <button id="guidelinesTopBtn" class="btn btn-secondary" type="button">
+          Guidelines
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <div class="top-row">
+        <div id="sessionInfo">No active game session</div>
+        <button
+          id="endSessionBtn"
+          class="btn btn-secondary"
+          type="button"
+          disabled
+        >
+          End Game
+        </button>
+        <button id="connectBtn" class="btn" type="button" disabled>
+          Connect Die
+        </button>
+      </div>
+
+      <section>
+        <h2 style="margin: 0 0 8px 0; font-size: 16px">Connected Dice</h2>
+        <div id="diceList"></div>
+      </section>
+
+      <!-- NEW: visual dice area (like your sketch) -->
+      <section>
+        <h2 class="faces-section-title">Last Roll by Die</h2>
+        <div id="diceFaces"></div>
+      </section>
+    </main>
 
     <script src="godice.js"></script>
     <script>
-      // ========= Constants =========
-      const INACTIVITY_MS = 30_000; // 30 seconds
+      /**********************************
+       * SESSION STATE (in memory only)
+       **********************************/
+      const sessionState = {
+        active: false,
+        current: null, // { id, startedAt, tableNumber, checkNumber, managerId, managerName }
+        rolls: [], // { timestamp, tableNumber, checkNumber, managerId, managerName, dieId, dieLabel, face }
+      };
 
-      // ========= DOM =========
+      // Currently selected session in the History modal (for CSV export)
+      let currentHistorySessionMeta = null;
+
+      // Simple reward configuration by sum of the two dice
+      const REWARDS_BY_SUM = {
+        2: "On the house (100% off the check)",
+        3: "75% off the check",
+        4: "50% off the check",
+        5: "40% off the check",
+        6: "30% off the check",
+        7: "No discount (better luck next time!)",
+        8: "10% off the check",
+        9: "15% off the check",
+        10: "20% off the check",
+        11: "25% off the check",
+        12: "On the house (jackpot!)",
+      };
+
+      function getRewardForSum(sum) {
+        return (
+          REWARDS_BY_SUM[sum] ||
+          "No configured reward for this total. Please check game rules."
+        );
+      }
+
+      // Track if this game has already been completed (2 rolls reached)
+      let gameCompleted = false;
+
+      // --- Export protection (simple front-end password gate) ---
+      const EXPORT_PASSWORD = "ADMIN1234"; // change this to your real password
+      let exportUnlocked = false;
+      let exportPasswordResolve = null;
+      let exportPasswordVisible = false;
+
+      function openExportPasswordModal() {
+        exportPasswordError.textContent = "";
+        exportPasswordInput.value = "";
+        exportPasswordInput.type = "password";
+        exportPasswordVisible = false;
+        exportPasswordShowBtn.textContent = "Show";
+
+        exportPasswordBackdrop.style.display = "flex";
+        setTimeout(() => exportPasswordInput.focus(), 10);
+      }
+
+      function closeExportPasswordModal() {
+        exportPasswordBackdrop.style.display = "none";
+        // If we close without explicitly resolving, treat as "cancel"
+        if (exportPasswordResolve) {
+          exportPasswordResolve(false);
+          exportPasswordResolve = null;
+        }
+      }
+
+      function handleExportPasswordSubmit() {
+        const value = exportPasswordInput.value;
+        if (!value) {
+          exportPasswordError.textContent = "Please enter a password.";
+          return;
+        }
+
+        if (value === EXPORT_PASSWORD) {
+          exportUnlocked = true;
+          exportPasswordBackdrop.style.display = "none";
+          if (exportPasswordResolve) {
+            exportPasswordResolve(true);
+            exportPasswordResolve = null;
+          }
+        } else {
+          exportPasswordError.textContent = "Incorrect password.";
+        }
+      }
+
+      function handleExportPasswordCancel() {
+        exportPasswordBackdrop.style.display = "none";
+        if (exportPasswordResolve) {
+          exportPasswordResolve(false);
+          exportPasswordResolve = null;
+        }
+      }
+
+      /**
+       * Returns a Promise<boolean>:
+       *  - true if password ok (or already unlocked)
+       *  - false if cancelled / incorrect
+       */
+      function requireExportPassword() {
+        if (exportUnlocked) {
+          return Promise.resolve(true);
+        }
+
+        return new Promise((resolve) => {
+          exportPasswordResolve = resolve;
+          openExportPasswordModal();
+        });
+      }
+
+      /**********************************
+       * DOM ELEMENTS
+       **********************************/
+      const startOverlay = document.getElementById("startOverlay");
+      const tableInput = document.getElementById("tableInput");
+      const checkInput = document.getElementById("checkInput");
+      const managerSelect = document.getElementById("managerSelect");
+      const startSessionBtn = document.getElementById("startSessionBtn");
+      const overlayError = document.getElementById("overlayError");
+
+      const guidelinesBackdrop = document.getElementById("guidelinesBackdrop");
+      const guidelinesBtn = document.getElementById("guidelinesBtn");
+      const guidelinesTopBtn = document.getElementById("guidelinesTopBtn");
+      const closeGuidelinesBtn = document.getElementById("closeGuidelinesBtn");
+
+      const overlayHistoryBtn = document.getElementById("overlayHistoryBtn");
+
+      const sessionInfo = document.getElementById("sessionInfo");
+      const endSessionBtn = document.getElementById("endSessionBtn");
       const connectBtn = document.getElementById("connectBtn");
       const diceList = document.getElementById("diceList");
+      const diceFaces = document.getElementById("diceFaces");
 
-      // ========= Helpers =========
+      const historyBackdrop = document.getElementById("historyBackdrop");
+      const historyBtn = document.getElementById("historyBtn");
+      const closeHistoryBtn = document.getElementById("closeHistoryBtn");
+      const historyListEl = document.getElementById("historyList");
+      const historyDetailsEl = document.getElementById("historyDetails");
+
+      const exportAllBtn = document.getElementById("exportAllBtn");
+      const exportSessionBtn = document.getElementById("exportSessionBtn");
+
+      const rewardBackdrop = document.getElementById("rewardBackdrop");
+      const rewardSumEl = document.getElementById("rewardSum");
+      const rewardTextEl = document.getElementById("rewardText");
+      const rewardRollsEl = document.getElementById("rewardRolls");
+      const rewardCloseBtn = document.getElementById("rewardCloseBtn");
+
+      const exportPasswordBackdrop = document.getElementById(
+        "exportPasswordBackdrop"
+      );
+      const exportPasswordInput = document.getElementById(
+        "exportPasswordInput"
+      );
+      const exportPasswordError = document.getElementById(
+        "exportPasswordError"
+      );
+      const exportPasswordShowBtn = document.getElementById(
+        "exportPasswordShowBtn"
+      );
+      const exportPasswordSubmitBtn = document.getElementById(
+        "exportPasswordSubmitBtn"
+      );
+      const exportPasswordCancelBtn = document.getElementById(
+        "exportPasswordCancelBtn"
+      );
+
+      function updateConnectButtonLabel() {
+        if (!diceList) return;
+
+        if (diceList.children.length === 0) {
+          connectBtn.textContent = "Connect Die";
+        } else {
+          connectBtn.textContent = "Connect Another Die";
+        }
+      }
+
+      /**********************************
+       * INDEXEDDB HELPERS (local storage)
+       **********************************/
+      let dbPromise = null;
+
+      function hasIndexedDB() {
+        return !!window.indexedDB;
+      }
+
+      function openDatabase() {
+        if (!hasIndexedDB()) {
+          console.warn("[DB] indexedDB not available in this browser.");
+          return Promise.reject(new Error("IndexedDB not supported"));
+        }
+
+        if (dbPromise) return dbPromise;
+
+        dbPromise = new Promise((resolve, reject) => {
+          const request = window.indexedDB.open("GoDiceDB", 1);
+
+          request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            // sessions store
+            if (!db.objectStoreNames.contains("sessions")) {
+              const sStore = db.createObjectStore("sessions", {
+                keyPath: "id",
+              });
+              sStore.createIndex("startedAt", "startedAt", { unique: false });
+              sStore.createIndex("tableNumber", "tableNumber", {
+                unique: false,
+              });
+              sStore.createIndex("checkNumber", "checkNumber", {
+                unique: false,
+              });
+              sStore.createIndex("managerId", "managerId", { unique: false });
+              sStore.createIndex("status", "status", { unique: false });
+            }
+            // rolls store
+            if (!db.objectStoreNames.contains("rolls")) {
+              const rStore = db.createObjectStore("rolls", { keyPath: "id" });
+              rStore.createIndex("sessionId", "sessionId", { unique: false });
+              rStore.createIndex("timestamp", "timestamp", { unique: false });
+              rStore.createIndex("dieId", "dieId", { unique: false });
+            }
+          };
+
+          request.onsuccess = () => {
+            resolve(request.result);
+          };
+          request.onerror = () => {
+            console.error("[DB] open error:", request.error);
+            reject(request.error);
+          };
+        });
+
+        return dbPromise;
+      }
+
+      async function dbSaveSessionStart(session) {
+        try {
+          const db = await openDatabase();
+          const tx = db.transaction("sessions", "readwrite");
+          const store = tx.objectStore("sessions");
+
+          const startedDate = new Date(session.startedAt);
+          const startedAtDisplay = startedDate.toLocaleString(undefined, {
+            dateStyle: "short",
+            timeStyle: "medium",
+            timeZone: "America/New_York",
+          });
+
+          const record = {
+            id: session.id,
+            startedAt: session.startedAt, // ISO (machine-friendly)
+            startedAtDisplay, // human-friendly
+            endedAt: null,
+            endedAtDisplay: null,
+            tableNumber: session.tableNumber,
+            checkNumber: session.checkNumber,
+            managerId: session.managerId,
+            managerName: session.managerName,
+            status: "active",
+          };
+
+          store.put(record);
+          tx.oncomplete = () => console.log("[DB] session start saved", record);
+          tx.onerror = () =>
+            console.error("[DB] session start save failed", tx.error);
+        } catch (e) {
+          console.warn("[DB] session start not saved:", e?.message || e);
+        }
+      }
+
+      async function dbSaveSessionEnd(sessionSummary) {
+        try {
+          const db = await openDatabase();
+          const tx = db.transaction("sessions", "readwrite");
+          const store = tx.objectStore("sessions");
+
+          const startedDate = new Date(sessionSummary.startedAt);
+          const endedDate = new Date(sessionSummary.endedAt);
+
+          const startedAtDisplay = startedDate.toLocaleString(undefined, {
+            dateStyle: "short",
+            timeStyle: "medium",
+            timeZone: "America/New_York",
+          });
+          const endedAtDisplay = endedDate.toLocaleString(undefined, {
+            dateStyle: "short",
+            timeStyle: "medium",
+            timeZone: "America/New_York",
+          });
+
+          const record = {
+            id: sessionSummary.id,
+            startedAt: sessionSummary.startedAt, // ISO
+            startedAtDisplay, // human-readable
+            endedAt: sessionSummary.endedAt, // ISO
+            endedAtDisplay, // human-readable
+            tableNumber: sessionSummary.tableNumber,
+            checkNumber: sessionSummary.checkNumber,
+            managerId: sessionSummary.managerId,
+            managerName: sessionSummary.managerName,
+            status: "ended",
+            rollsCount: sessionSummary.rolls ? sessionSummary.rolls.length : 0,
+          };
+
+          store.put(record);
+          tx.oncomplete = () => console.log("[DB] session end saved", record);
+          tx.onerror = () =>
+            console.error("[DB] session end save failed", tx.error);
+        } catch (e) {
+          console.warn("[DB] session end not saved:", e?.message || e);
+        }
+      }
+
+      function makeRollId() {
+        return "roll_" + Date.now() + "_" + Math.random().toString(16).slice(2);
+      }
+
+      async function dbSaveRoll(sessionId, rollRecord) {
+        try {
+          const db = await openDatabase();
+          const tx = db.transaction("rolls", "readwrite");
+          const store = tx.objectStore("rolls");
+
+          const tsDate = new Date(rollRecord.timestamp);
+          const timestampDisplay = tsDate.toLocaleString(undefined, {
+            dateStyle: "short",
+            timeStyle: "medium",
+            timeZone: "America/New_York",
+          });
+
+          const record = {
+            id: makeRollId(),
+            sessionId,
+            timestamp: rollRecord.timestamp, // ISO
+            timestampDisplay, // human-readable
+            tableNumber: rollRecord.tableNumber,
+            checkNumber: rollRecord.checkNumber,
+            managerId: rollRecord.managerId,
+            managerName: rollRecord.managerName,
+            dieId: rollRecord.dieId,
+            dieLabel: rollRecord.dieLabel,
+            face: rollRecord.face,
+          };
+
+          store.put(record);
+          tx.oncomplete = () => console.log("[DB] roll saved", record);
+          tx.onerror = () => console.error("[DB] roll save failed", tx.error);
+        } catch (e) {
+          console.warn("[DB] roll not saved:", e?.message || e);
+        }
+      }
+
+      async function dbGetAllSessions() {
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction("sessions", "readonly");
+          const store = tx.objectStore("sessions");
+          const request = store.getAll();
+          request.onsuccess = () => {
+            const result = request.result || [];
+            // sort by startedAt descending
+            result.sort((a, b) => {
+              if (!a.startedAt && !b.startedAt) return 0;
+              if (!a.startedAt) return 1;
+              if (!b.startedAt) return -1;
+              return a.startedAt < b.startedAt ? 1 : -1;
+            });
+            resolve(result);
+          };
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      async function dbGetRollsForSession(sessionId) {
+        const db = await openDatabase();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction("rolls", "readonly");
+          const store = tx.objectStore("rolls");
+          let request;
+
+          if (store.indexNames.contains("sessionId")) {
+            const idx = store.index("sessionId");
+            request = idx.getAll(IDBKeyRange.only(sessionId));
+          } else {
+            // Fallback: get all and filter
+            request = store.getAll();
+          }
+
+          request.onsuccess = () => {
+            let rows = request.result || [];
+            if (!store.indexNames.contains("sessionId")) {
+              rows = rows.filter((r) => r.sessionId === sessionId);
+            }
+            // sort rolls by timestamp ascending
+            rows.sort((a, b) => {
+              if (!a.timestamp && !b.timestamp) return 0;
+              if (!a.timestamp) return -1;
+              if (!b.timestamp) return 1;
+              return a.timestamp < b.timestamp ? -1 : 1;
+            });
+            resolve(rows);
+          };
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      function csvEscape(value) {
+        if (value === null || value === undefined) return "";
+        const s = String(value);
+        if (/[",\n]/.test(s)) {
+          return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+      }
+
+      function downloadCSV(filename, rows) {
+        const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      /**********************************
+       * HISTORY VIEW LOGIC
+       **********************************/
+      function renderHistoryList(sessions) {
+        historyListEl.innerHTML = "";
+        historyDetailsEl.innerHTML =
+          '<p style="font-size:13px; color:#9ca3af;">Select a session to view its rolls.</p>';
+
+        currentHistorySessionMeta = null;
+        exportSessionBtn.disabled = true;
+
+        sessions.forEach((s) => {
+          const row = document.createElement("div");
+          row.className = "history-row";
+          row.dataset.sessionId = s.id;
+
+          const started = s.startedAtDisplay || s.startedAt || "";
+          const status = s.status || "ended";
+          const rollsCount = s.rollsCount != null ? s.rollsCount : "-";
+
+          row.innerHTML = `
+            <span>${started}</span>
+            <span>${s.tableNumber || ""}</span>
+            <span>${s.checkNumber || ""}</span>
+            <span>${s.managerName || ""}</span>
+            <span>${rollsCount}</span>
+            <span>${status}</span>
+          `;
+
+          row.addEventListener("click", async () => {
+            document
+              .querySelectorAll(".history-row.selected")
+              .forEach((el) => el.classList.remove("selected"));
+            row.classList.add("selected");
+            await renderHistoryDetails(s.id, s);
+          });
+
+          historyListEl.appendChild(row);
+        });
+
+        if (!sessions.length) {
+          historyDetailsEl.innerHTML =
+            '<p style="font-size:13px; color:#9ca3af;">No sessions recorded yet.</p>';
+        }
+      }
+
+      async function renderHistoryDetails(sessionId, sessionMeta) {
+        try {
+          const rolls = await dbGetRollsForSession(sessionId);
+          const s = sessionMeta;
+
+          currentHistorySessionMeta = s;
+          exportSessionBtn.disabled = false;
+
+          const started = s.startedAtDisplay || s.startedAt || "";
+          const ended = s.endedAtDisplay || s.endedAt || "";
+
+          const headerHtml = `
+            <h4>Session Details</h4>
+            <p><strong>Table:</strong> ${s.tableNumber || ""}</p>
+            <p><strong>Check:</strong> ${s.checkNumber || ""}</p>
+            <p><strong>Manager:</strong> ${s.managerName || ""}</p>
+            <p><strong>Started:</strong> ${started}</p>
+            <p><strong>Ended:</strong> ${ended || "-"}</p>
+            <p><strong>Rolls:</strong> ${rolls.length}</p>
+          `;
+
+          if (!rolls.length) {
+            historyDetailsEl.innerHTML =
+              headerHtml +
+              '<div class="rolls-list"><p>No rolls recorded for this session.</p></div>';
+            return;
+          }
+
+          const rollsHtml = rolls
+            .map((r) => {
+              const ts = r.timestampDisplay || r.timestamp || "";
+              return `
+                <div class="roll-row">
+                  <span>${ts}</span>
+                  <span>Die ${r.dieLabel || ""}</span>
+                  <span>Face ${r.face}</span>
+                </div>
+              `;
+            })
+            .join("");
+
+          historyDetailsEl.innerHTML =
+            headerHtml + `<div class="rolls-list">${rollsHtml}</div>`;
+        } catch (e) {
+          console.error("[HISTORY] load rolls failed:", e);
+          historyDetailsEl.innerHTML =
+            '<p style="font-size:13px; color:#fca5a5;">Failed to load rolls for this session.</p>';
+        }
+      }
+
+      async function openHistory() {
+        historyBackdrop.style.display = "flex";
+        historyListEl.innerHTML =
+          '<p style="font-size:13px; color:#9ca3af;">Loading…</p>';
+        historyDetailsEl.innerHTML =
+          '<p style="font-size:13px; color:#9ca3af;">Select a session to view its rolls.</p>';
+
+        try {
+          const sessions = await dbGetAllSessions();
+          renderHistoryList(sessions);
+        } catch (e) {
+          console.error("[HISTORY] load sessions failed:", e);
+          historyListEl.innerHTML =
+            '<p style="font-size:13px; color:#fca5a5;">Failed to load sessions.</p>';
+        }
+      }
+
+      function closeHistory() {
+        historyBackdrop.style.display = "none";
+
+        // Reset export unlock when History is closed
+        exportUnlocked = false;
+
+        // If the password modal is open for some reason, cancel it too
+        if (exportPasswordBackdrop.style.display === "flex") {
+          handleExportPasswordCancel();
+        }
+      }
+
+      async function handleExportAllSessions() {
+        const ok = await requireExportPassword();
+        if (!ok) return;
+
+        try {
+          exportAllBtn.disabled = true;
+          exportAllBtn.textContent = "Exporting…";
+
+          const sessions = await dbGetAllSessions();
+          if (!sessions.length) {
+            alert("No sessions to export yet.");
+            return;
+          }
+
+          // For each session, fetch rolls
+          const rollsPerSession = await Promise.all(
+            sessions.map((s) => dbGetRollsForSession(s.id))
+          );
+
+          const header = [
+            "sessionId",
+            "tableNumber",
+            "checkNumber",
+            "managerName",
+            "status",
+            "sessionStarted",
+            "sessionEnded",
+            "rollTimestamp",
+            "dieLabel",
+            "dieId",
+            "face",
+          ];
+          const rows = [header];
+
+          sessions.forEach((s, idx) => {
+            const rolls = rollsPerSession[idx];
+            const sessionStarted = s.startedAtDisplay || s.startedAt || "";
+            const sessionEnded = s.endedAtDisplay || s.endedAt || "";
+            const status = s.status || "ended";
+
+            if (!rolls.length) {
+              // Optional: include a row even if there are no rolls
+              rows.push([
+                s.id,
+                s.tableNumber || "",
+                s.checkNumber || "",
+                s.managerName || "",
+                status,
+                sessionStarted,
+                sessionEnded,
+                "", // rollTimestamp
+                "", // dieLabel
+                "", // dieId
+                "", // face
+              ]);
+            } else {
+              rolls.forEach((r) => {
+                const ts = r.timestampDisplay || r.timestamp || "";
+                rows.push([
+                  s.id,
+                  s.tableNumber || "",
+                  s.checkNumber || "",
+                  s.managerName || "",
+                  status,
+                  sessionStarted,
+                  sessionEnded,
+                  ts,
+                  r.dieLabel || "",
+                  r.dieId || "",
+                  r.face,
+                ]);
+              });
+            }
+          });
+
+          const now = new Date();
+          const dateTag = now.toISOString().slice(0, 10); // e.g. 2025-11-21
+          downloadCSV(`godice_history_${dateTag}.csv`, rows);
+        } catch (e) {
+          console.error("[HISTORY] export all failed:", e);
+          alert("Failed to export history.");
+        } finally {
+          exportAllBtn.disabled = false;
+          exportAllBtn.textContent = "Export All (CSV)";
+        }
+      }
+
+      async function handleExportSelectedSession() {
+        if (!currentHistorySessionMeta) {
+          alert("Please select a session first.");
+          return;
+        }
+
+        const ok = await requireExportPassword();
+        if (!ok) return;
+
+        try {
+          exportSessionBtn.disabled = true;
+          exportSessionBtn.textContent = "Exporting…";
+
+          const s = currentHistorySessionMeta;
+          const rolls = await dbGetRollsForSession(s.id);
+
+          const header = [
+            "sessionId",
+            "tableNumber",
+            "checkNumber",
+            "managerName",
+            "status",
+            "sessionStarted",
+            "sessionEnded",
+            "rollTimestamp",
+            "dieLabel",
+            "dieId",
+            "face",
+          ];
+          const rows = [header];
+
+          const sessionStarted = s.startedAtDisplay || s.startedAt || "";
+          const sessionEnded = s.endedAtDisplay || s.endedAt || "";
+          const status = s.status || "ended";
+
+          if (!rolls.length) {
+            rows.push([
+              s.id,
+              s.tableNumber || "",
+              s.checkNumber || "",
+              s.managerName || "",
+              status,
+              sessionStarted,
+              sessionEnded,
+              "",
+              "",
+              "",
+              "",
+            ]);
+          } else {
+            rolls.forEach((r) => {
+              const ts = r.timestampDisplay || r.timestamp || "";
+              rows.push([
+                s.id,
+                s.tableNumber || "",
+                s.checkNumber || "",
+                s.managerName || "",
+                status,
+                sessionStarted,
+                sessionEnded,
+                ts,
+                r.dieLabel || "",
+                r.dieId || "",
+                r.face,
+              ]);
+            });
+          }
+
+          const safeTable = (s.tableNumber || "table").replace(
+            /[^a-z0-9]+/gi,
+            "_"
+          );
+          const safeCheck = (s.checkNumber || "check").replace(
+            /[^a-z0-9]+/gi,
+            "_"
+          );
+          downloadCSV(`godice_session_${safeTable}_${safeCheck}.csv`, rows);
+        } catch (e) {
+          console.error("[HISTORY] export session failed:", e);
+          alert("Failed to export this session.");
+        } finally {
+          exportSessionBtn.disabled = false;
+          exportSessionBtn.textContent = "Export Session (CSV)";
+        }
+      }
+
+      /**********************************
+       * MANAGERS (static list for now)
+       **********************************/
+      const MANAGERS = [
+        { id: "ankush", name: "Ankush Punhani" },
+        { id: "pralosh", name: "Pralosh Rajbhandari" },
+        { id: "mgr_nj_1", name: "Manager NJ 01" },
+      ];
+
+      function populateManagerDropdown() {
+        MANAGERS.forEach((m) => {
+          const opt = document.createElement("option");
+          opt.value = m.id;
+          opt.textContent = m.name;
+          managerSelect.appendChild(opt);
+        });
+      }
+
+      /**********************************
+       * GUIDELINES MODAL LOGIC
+       **********************************/
+      function openGuidelines() {
+        guidelinesBackdrop.style.display = "flex";
+      }
+      function closeGuidelines() {
+        guidelinesBackdrop.style.display = "none";
+      }
+      guidelinesBtn.addEventListener("click", openGuidelines);
+      guidelinesTopBtn.addEventListener("click", openGuidelines);
+      closeGuidelinesBtn.addEventListener("click", closeGuidelines);
+      guidelinesBackdrop.addEventListener("click", (e) => {
+        if (e.target === guidelinesBackdrop) closeGuidelines();
+      });
+
+      /**********************************
+       * HISTORY MODAL EVENTS
+       **********************************/
+      overlayHistoryBtn.addEventListener("click", openHistory);
+      historyBtn.addEventListener("click", openHistory);
+      closeHistoryBtn.addEventListener("click", closeHistory);
+      historyBackdrop.addEventListener("click", (e) => {
+        if (e.target === historyBackdrop) closeHistory();
+      });
+
+      exportAllBtn.addEventListener("click", handleExportAllSessions);
+      exportSessionBtn.addEventListener("click", handleExportSelectedSession);
+
+      /**********************************
+       * REWARD MODAL LOGIC
+       **********************************/
+      function openRewardModal(sum, rewardText, firstRoll, secondRoll) {
+        rewardSumEl.textContent = sum;
+        rewardTextEl.textContent = rewardText;
+
+        if (firstRoll && secondRoll) {
+          rewardRollsEl.innerHTML = `
+            <div>Roll 1 - Die ${firstRoll.dieLabel || ""}: face ${
+            firstRoll.face
+          }</div>
+            <div>Roll 2 - Die ${secondRoll.dieLabel || ""}: face ${
+            secondRoll.face
+          }</div>
+          `;
+        } else {
+          rewardRollsEl.textContent = "";
+        }
+
+        rewardBackdrop.style.display = "flex";
+      }
+
+      // Close reward modal and automatically end the game
+      function closeRewardAndEndGame() {
+        rewardBackdrop.style.display = "none";
+        endSession(); // will do the normal cleanup, disconnects, overlay, DB save
+      }
+
+      rewardCloseBtn.addEventListener("click", closeRewardAndEndGame);
+      rewardBackdrop.addEventListener("click", (e) => {
+        if (e.target === rewardBackdrop) {
+          closeRewardAndEndGame();
+        }
+      });
+
+      /**********************************
+       * EXPORT PASSWORD MODAL EVENTS
+       **********************************/
+      exportPasswordShowBtn.addEventListener("click", () => {
+        exportPasswordVisible = !exportPasswordVisible;
+        exportPasswordInput.type = exportPasswordVisible ? "text" : "password";
+        exportPasswordShowBtn.textContent = exportPasswordVisible
+          ? "Hide"
+          : "Show";
+      });
+
+      exportPasswordSubmitBtn.addEventListener(
+        "click",
+        handleExportPasswordSubmit
+      );
+      exportPasswordCancelBtn.addEventListener(
+        "click",
+        handleExportPasswordCancel
+      );
+
+      exportPasswordBackdrop.addEventListener("click", (e) => {
+        if (e.target === exportPasswordBackdrop) {
+          handleExportPasswordCancel();
+        }
+      });
+
+      // Allow Enter key to submit password
+      exportPasswordInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          handleExportPasswordSubmit();
+        }
+      });
+
+      /**********************************
+       * SESSION HELPERS
+       **********************************/
+      function formatSessionInfo(session) {
+        return `Table ${session.tableNumber} • Check ${session.checkNumber} • Manager ${session.managerName}`;
+      }
+
+      function startSession() {
+        const table = tableInput.value.trim();
+        const check = checkInput.value.trim();
+        const managerId = managerSelect.value;
+
+        if (!table || !check || !managerId) {
+          overlayError.textContent =
+            "Please fill table, check, and manager to start.";
+          return;
+        }
+
+        const manager = MANAGERS.find((m) => m.id === managerId);
+        if (!manager) {
+          overlayError.textContent = "Please select a valid manager.";
+          return;
+        }
+
+        overlayError.textContent = "";
+
+        const sessionId = "sess_" + Date.now();
+        const startedAt = new Date().toISOString();
+
+        sessionState.active = true;
+        sessionState.current = {
+          id: sessionId,
+          startedAt,
+          tableNumber: table,
+          checkNumber: check,
+          managerId: manager.id,
+          managerName: manager.name,
+        };
+        sessionState.rolls = []; // reset in-memory rolls
+        gameCompleted = false; // ✅ reset at start of each game
+
+        console.log("[SESSION STARTED]", sessionState.current);
+        dbSaveSessionStart(sessionState.current);
+
+        // Reset labels and dice UI at the start of each game
+        resetLabelGen();
+        clearAllDiceUI();
+
+        // Update UI
+        sessionInfo.textContent = formatSessionInfo(sessionState.current);
+        startOverlay.style.display = "none";
+        connectBtn.disabled = false;
+        endSessionBtn.disabled = false;
+      }
+
+      function endSession() {
+        if (!sessionState.active || !sessionState.current) return;
+
+        const endedAt = new Date().toISOString();
+        const summary = {
+          ...sessionState.current,
+          endedAt,
+          rolls: [...sessionState.rolls],
+        };
+
+        console.log("[SESSION ENDED]", summary);
+        dbSaveSessionEnd(summary);
+
+        // Disconnect all dice at end of game
+        disconnectAllDice();
+
+        // Reset session state
+        sessionState.active = false;
+        sessionState.current = null;
+        sessionState.rolls = [];
+
+        // Update UI
+        sessionInfo.textContent = "No active game session";
+        connectBtn.disabled = true;
+        endSessionBtn.disabled = false; // keep enabled until dice disconnect done, then overlay appears
+
+        // Show overlay again for next table
+        startOverlay.style.display = "flex";
+        tableInput.value = "";
+        checkInput.value = "";
+        managerSelect.value = "";
+        overlayError.textContent = "";
+
+        gameCompleted = false; // ✅ keep state clean for next time
+      }
+
+      endSessionBtn.addEventListener("click", endSession);
+      startSessionBtn.addEventListener("click", startSession);
+
+      /**********************************
+       * ROLL RECORDING
+       **********************************/
+      function recordRoll(diceId, dieLabel, face) {
+        if (!sessionState.active || !sessionState.current) {
+          console.log("[ROLL IGNORED] No active session", {
+            diceId,
+            dieLabel,
+            face,
+          });
+          return;
+        }
+
+        const now = new Date().toISOString();
+        const s = sessionState.current;
+
+        const record = {
+          timestamp: now,
+          tableNumber: s.tableNumber,
+          checkNumber: s.checkNumber,
+          managerId: s.managerId,
+          managerName: s.managerName,
+          dieId: diceId,
+          dieLabel,
+          face: Number(face) || 0,
+        };
+
+        sessionState.rolls.push(record);
+        console.log("[ROLL RECORDED]", record);
+        dbSaveRoll(s.id, record);
+
+        if (sessionState.rolls.length === 2) {
+          gameCompleted = true;
+
+          const [firstRoll, secondRoll] = sessionState.rolls;
+          const sum = (firstRoll.face || 0) + (secondRoll.face || 0);
+          const rewardText = getRewardForSum(sum);
+
+          console.log("[REWARD] total:", sum, "reward:", rewardText);
+          openRewardModal(sum, rewardText, firstRoll, secondRoll);
+        }
+      }
+
+      /**********************************
+       * DICE CONNECTION LOGIC
+       **********************************/
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       function shortId(id) {
         return (id || "").slice(0, 6) + "…";
       }
 
-      // Label generator: A,B,...,Z,AA,AB,...
+      // LABEL GENERATOR (reset to A/B each game)
       function* labelGen() {
         const L = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
         let n = 0;
@@ -40,19 +1627,20 @@
           yield s;
         }
       }
-      const nextLabel = labelGen();
+      let nextLabel;
+      function resetLabelGen() {
+        nextLabel = labelGen();
+      }
+      resetLabelGen(); // initial
 
-      // Per-die op queue to serialize GATT calls
       function makeQueue() {
         let p = Promise.resolve();
         return (fn) =>
           (p = p.then(fn).catch((e) => {
             console.warn("[queue] op failed:", e?.message || e);
-            // keep queue alive
           }));
       }
 
-      // Retry wrapper for transient “GATT operation already in progress”
       async function withGattRetry(fn, { retries = 6, delay = 250 } = {}) {
         let last;
         for (let i = 0; i < retries; i++) {
@@ -62,35 +1650,56 @@
             const msg = (e && e.message) || String(e);
             if (!/GATT operation already in progress/i.test(msg)) throw e;
             last = e;
-            await sleep(delay * (i + 1)); // backoff
+            await sleep(delay * (i + 1));
           }
         }
         throw last;
       }
 
-      // Build a simple card for a die
       function makeDieCard(diceId, label) {
         const root = document.createElement("div");
-        root.style.cssText =
-          "border:1px solid #ccc;padding:12px;border-radius:8px;margin:8px 0;max-width:460px;transition:opacity .3s ease;";
+        root.className = "card";
         const title = document.createElement("h3");
-        title.textContent = `Dice ${label} (${shortId(diceId)})`;
+        title.textContent = `Die ${label} (${shortId(diceId)})`;
         const status = document.createElement("div");
+        status.className = "line";
         status.textContent = "Status: Connected";
         const battery = document.createElement("div");
+        battery.className = "line";
         battery.textContent = "Battery: —";
         const roll = document.createElement("div");
+        roll.className = "line";
         roll.textContent = "Last roll: —";
         root.append(title, status, battery, roll);
         diceList.appendChild(root);
-        return { root, status, battery, roll };
+        return { root, title, status, battery, roll };
       }
 
-      // ========= State: diceId -> { inst, label, els, queue, ready, batteryRequested, ledPulsed, lastActive, timer } =========
-      const diceState = new Map();
+      // NEW: create visual dice face box
+      function makeFaceCard(label) {
+        const root = document.createElement("div");
+        root.className = "dice-face";
+        const lbl = document.createElement("div");
+        lbl.className = "dice-face-label";
+        lbl.textContent = `Dice ${label}`;
+        const square = document.createElement("div");
+        square.className = "dice-square";
+        const valueEl = document.createElement("div");
+        valueEl.className = "dice-square-value";
+        valueEl.textContent = "-";
+        square.appendChild(valueEl);
+        const textUnder = document.createElement("div");
+        textUnder.className = "dice-face-value";
+        textUnder.textContent = "Last roll: -";
+        root.append(lbl, square, textUnder);
+        diceFaces.appendChild(root);
+        return { root, valueEl, textUnder };
+      }
+
+      const diceState = new Map(); // diceId -> { inst, label, els, faceEls, queue, ready, batteryRequested, ledPulsed, lastActive, timer }
+
       const goDice = new GoDice();
 
-      // Keep console clean from benign library race during connect
       window.addEventListener("unhandledrejection", (e) => {
         const msg =
           (e && e.reason && e.reason.message) || String(e.reason || "");
@@ -100,13 +1709,13 @@
         }
       });
 
-      // ---- Inactivity management ----
+      // Inactivity (Back to 30sec)
+      const INACTIVITY_MS = 30000;
+
       function markActive(diceId) {
         const st = diceState.get(diceId);
         if (!st) return;
         st.lastActive = Date.now();
-
-        // Reset the countdown timer
         if (st.timer) clearTimeout(st.timer);
         st.timer = setTimeout(() => handleInactivity(diceId), INACTIVITY_MS);
       }
@@ -114,24 +1723,13 @@
       async function handleInactivity(diceId) {
         const st = diceState.get(diceId);
         if (!st) return;
-
-        // Double check lastActive (if something arrived right as timer fired)
         const idleFor = Date.now() - (st.lastActive || 0);
         if (idleFor < INACTIVITY_MS - 100) {
-          // activity happened; reschedule
-          if (st.timer) clearTimeout(st.timer);
-          st.timer = setTimeout(
-            () => handleInactivity(diceId),
-            INACTIVITY_MS - idleFor
-          );
+          markActive(diceId);
           return;
         }
-
-        // Update UI first
         st.els.status.textContent = "Status: Removed due to inactivity";
-        st.els.root.style.opacity = 0.5;
-
-        // Try to gracefully disconnect (queued + retried)
+        st.els.root.classList.add("muted");
         st.queue(async () => {
           try {
             await withGattRetry(() => st.inst.disconnect?.());
@@ -141,30 +1739,67 @@
               e?.message || e
             );
           } finally {
-            // Remove timers, clear state, optionally remove the card
             if (st.timer) clearTimeout(st.timer);
             diceState.delete(diceId);
-
-            // Optional: remove the card from DOM after a short delay
-            setTimeout(() => {
-              if (st.els.root.parentNode)
-                st.els.root.parentNode.removeChild(st.els.root);
-            }, 1200);
+            if (st.els.root.parentNode)
+              st.els.root.parentNode.removeChild(st.els.root);
+            if (st.faceEls?.root && st.faceEls.root.parentNode)
+              st.faceEls.root.parentNode.removeChild(st.faceEls.root);
+            updateConnectButtonLabel();
           }
         });
       }
 
-      // ========= GoDice library callbacks =========
+      // NEW: clear all dice UI elements (cards + faces)
+      function clearAllDiceUI() {
+        diceList.innerHTML = "";
+        diceFaces.innerHTML = "";
+        diceState.clear();
+        updateConnectButtonLabel();
+      }
+
+      // NEW: disconnect all dice at end of session
+      function disconnectAllDice() {
+        const entries = Array.from(diceState.entries());
+        entries.forEach(([diceId, st]) => {
+          if (st.timer) clearTimeout(st.timer);
+          st.els.status.textContent = "Status: Disconnected";
+          st.els.root.classList.add("muted");
+          st.queue(async () => {
+            try {
+              await withGattRetry(() => st.inst.disconnect?.());
+            } catch (e) {
+              console.warn(
+                `[${st.label}] disconnect on endSession failed:`,
+                e?.message || e
+              );
+            } finally {
+              diceState.delete(diceId);
+              if (st.els.root.parentNode)
+                st.els.root.parentNode.removeChild(st.els.root);
+              if (st.faceEls?.root && st.faceEls.root.parentNode)
+                st.faceEls.root.parentNode.removeChild(st.faceEls.root);
+            }
+          });
+        });
+        // also reset labels so next game starts at Dice A again
+        resetLabelGen();
+        updateConnectButtonLabel();
+      }
+
       GoDice.prototype.onDiceConnected = async (diceId, inst) => {
         let st = diceState.get(diceId);
         if (!st) {
           const label = nextLabel.next().value;
           const els = makeDieCard(diceId, label);
+          const faceEls = makeFaceCard(label);
+          const queue = makeQueue();
           st = {
             inst,
             label,
             els,
-            queue: makeQueue(),
+            faceEls,
+            queue,
             ready: false,
             batteryRequested: false,
             ledPulsed: false,
@@ -176,18 +1811,14 @@
         } else {
           st.inst = inst;
           st.els.status.textContent = "Status: Reconnected";
-          console.log(`[${st.label}] reconnected`);
           st.lastActive = Date.now();
+          console.log(`[${st.label}] reconnected`);
         }
 
-        // Start/reset inactivity countdown
         markActive(diceId);
-
-        // Let the library finish its own GATT work (discover/subscribe)
         await sleep(2000);
         st.ready = true;
 
-        // 1) Request battery (queued & retried)
         if (!st.batteryRequested) {
           st.batteryRequested = true;
           st.queue(async () => {
@@ -196,22 +1827,19 @@
         }
 
         connectBtn.disabled = false;
-        connectBtn.textContent = "Connect Another Die";
+        updateConnectButtonLabel();
       };
 
       GoDice.prototype.onBatteryLevel = async (diceId, level) => {
         const st = diceState.get(diceId);
         if (!st) return;
         st.els.battery.textContent = `Battery: ${level}%`;
-
-        // Count battery pings as activity (useful when on charger)
         markActive(diceId);
 
-        // 2) After first battery arrives, wait a tick and pulse LED (once)
         if (!st.ledPulsed && st.ready) {
           st.ledPulsed = true;
           st.queue(async () => {
-            await sleep(400); // extra settle
+            await sleep(400);
             await withGattRetry(() =>
               st.inst.pulseLed(3, 15, 15, [0, 128, 155])
             );
@@ -223,8 +1851,16 @@
         const st = diceState.get(diceId);
         if (!st) return;
         st.els.roll.textContent = `Last roll: ${value}`;
-        // A roll is definitely activity
         markActive(diceId);
+
+        // NEW: update visual dice box
+        if (st.faceEls) {
+          st.faceEls.valueEl.textContent = `${value}`;
+          st.faceEls.textUnder.textContent = `Last roll: ${value}`;
+        }
+
+        // Record roll into current session
+        recordRoll(diceId, st.label, value);
       };
 
       GoDice.prototype.onDiceDisconnected = (diceId) => {
@@ -233,26 +1869,34 @@
         st.els.status.textContent = "Status: Disconnected";
         if (st.timer) clearTimeout(st.timer);
         console.log(`[${st.label}] disconnected`);
-        // Keep the card visible when a manual/remote disconnect happens
       };
 
-      // ========= Connect button =========
       let connecting = false;
       connectBtn.addEventListener("click", async () => {
         if (connecting) return;
+        if (!sessionState.active) {
+          alert("Start a game session first.");
+          return;
+        }
         connecting = true;
         connectBtn.disabled = true;
         connectBtn.textContent = "Connecting…";
         try {
           await goDice.requestDevice();
         } catch (e) {
-          alert("Connection failed: " + (e?.message || e));
+          alert("Connection failed: " + ((e && e.message) || e));
           connectBtn.disabled = false;
-          connectBtn.textContent = "Connect Die";
+          updateConnectButtonLabel();
         } finally {
           connecting = false;
         }
       });
+
+      /**********************************
+       * INIT
+       **********************************/
+      populateManagerDropdown();
+      updateConnectButtonLabel();
     </script>
   </body>
 </html>
