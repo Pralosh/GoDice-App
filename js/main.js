@@ -1359,16 +1359,30 @@ GoDice.prototype.onBatteryLevel = async (diceId, level) => {
 GoDice.prototype.onStable = (diceId, value /*, acc */) => {
   const st = diceState.get(diceId);
   if (!st) return;
+
+  // 👉 While retry modal is open:
+  // - DO NOT update UI
+  // - DO NOT call recordRoll
+  // - ONLY mark the die as active so inactivity timer doesn't fire
+  if (retryModalOpen) {
+    console.log("[ROLL IGNORED UI] retry modal open, not updating dice face", {
+      diceId,
+      value,
+    });
+    markActive(diceId);
+    return;
+  }
+
+  // Normal flow: update UI
   st.els.roll.textContent = `Last roll: ${value}`;
   markActive(diceId);
 
-  // NEW: update visual dice box
   if (st.faceEls) {
     st.faceEls.valueEl.textContent = `${value}`;
     st.faceEls.textUnder.textContent = `Last roll: ${value}`;
   }
 
-  // Record roll into current session
+  // Then record the roll into the session
   recordRoll(diceId, st.label, value);
 };
 
