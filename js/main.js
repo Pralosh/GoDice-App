@@ -445,6 +445,31 @@ function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
+// Split an ISO timestamp into separate date & time strings in New York time.
+function formatDateTimeParts(isoString) {
+  if (!isoString) {
+    return { date: "", time: "" };
+  }
+  const d = new Date(isoString);
+
+  const date = d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "America/New_York",
+  });
+
+  const time = d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+    timeZone: "America/New_York",
+  });
+
+  return { date, time };
+}
+
 /**********************************
  * HISTORY VIEW LOGIC
  **********************************/
@@ -650,10 +675,14 @@ async function handleExportAllSessions() {
       "tableNumber",
       "checkNumber",
       "managerName",
-      "status", // now roll-level status
-      "sessionStarted",
-      "sessionEnded",
-      "rollTimestamp",
+      "sessionStatus", // Rewarded / Canceled / Ended (session-level)
+      "rollStatus", // Valid Roll / Invalid Roll / "" (roll-level)
+      "sessionStartDate",
+      "sessionStartTime",
+      "sessionEndDate",
+      "sessionEndTime",
+      "rollDate",
+      "rollTime",
       "dieLabel",
       "dieId",
       "face",
@@ -662,9 +691,11 @@ async function handleExportAllSessions() {
 
     sessions.forEach((s, idx) => {
       const rolls = rollsPerSession[idx];
-      const sessionStarted = s.startedAtDisplay || s.startedAt || "";
-      const sessionEnded = s.endedAtDisplay || s.endedAt || "";
-      const sessionStatus = s.status || "ended";
+
+      const sessionStatus = s.status || "Ended";
+
+      const startParts = formatDateTimeParts(s.startedAt);
+      const endParts = formatDateTimeParts(s.endedAt);
 
       // Build a lookup of invalid rolls for this session
       const invalidSet = new Set();
@@ -687,31 +718,40 @@ async function handleExportAllSessions() {
           s.tableNumber || "",
           s.checkNumber || "",
           s.managerName || "",
-          sessionStatus, // no rolls, so just show the session status
-          sessionStarted,
-          sessionEnded,
-          "", // rollTimestamp
+          sessionStatus,
+          "", // rollStatus
+          startParts.date,
+          startParts.time,
+          endParts.date,
+          endParts.time,
+          "", // rollDate
+          "", // rollTime
           "", // dieLabel
           "", // dieId
           "", // face
         ]);
       } else {
         rolls.forEach((r) => {
-          const ts = r.timestampDisplay || r.timestamp || "";
           const key =
             r.timestamp && r.dieId ? `${r.timestamp}__${r.dieId}` : null;
           const isInvalid = key && invalidSet.has(key);
-          const rollStatus = isInvalid ? "Invalid Roll" : sessionStatus;
+          const rollStatus = isInvalid ? "Invalid Roll" : "Valid Roll";
+
+          const rollParts = formatDateTimeParts(r.timestamp);
 
           rows.push([
             s.id,
             s.tableNumber || "",
             s.checkNumber || "",
             s.managerName || "",
-            rollStatus, // 👈 per-roll status
-            sessionStarted,
-            sessionEnded,
-            ts,
+            sessionStatus, // 👈 full session outcome
+            rollStatus, // 👈 per-roll validity
+            startParts.date,
+            startParts.time,
+            endParts.date,
+            endParts.time,
+            rollParts.date,
+            rollParts.time,
             r.dieLabel || "",
             r.dieId || "",
             r.face,
@@ -721,7 +761,7 @@ async function handleExportAllSessions() {
     });
 
     const now = new Date();
-    const dateTag = now.toISOString().slice(0, 10); // e.g. 2025-11-21
+    const dateTag = now.toISOString().slice(0, 10); // e.g. 2025-12-11
     downloadCSV(`godice_history_${dateTag}.csv`, rows);
   } catch (e) {
     console.error("[HISTORY] export all failed:", e);
@@ -753,19 +793,23 @@ async function handleExportSelectedSession() {
       "tableNumber",
       "checkNumber",
       "managerName",
-      "status", // roll-level
-      "sessionStarted",
-      "sessionEnded",
-      "rollTimestamp",
+      "sessionStatus", // Rewarded / Canceled / Ended
+      "rollStatus", // Valid Roll / Invalid Roll / ""
+      "sessionStartDate",
+      "sessionStartTime",
+      "sessionEndDate",
+      "sessionEndTime",
+      "rollDate",
+      "rollTime",
       "dieLabel",
       "dieId",
       "face",
     ];
     const rows = [header];
 
-    const sessionStarted = s.startedAtDisplay || s.startedAt || "";
-    const sessionEnded = s.endedAtDisplay || s.endedAt || "";
-    const sessionStatus = s.status || "ended";
+    const sessionStatus = s.status || "Ended";
+    const startParts = formatDateTimeParts(s.startedAt);
+    const endParts = formatDateTimeParts(s.endedAt);
 
     // Build invalid set for this single session
     const invalidSet = new Set();
@@ -788,8 +832,12 @@ async function handleExportSelectedSession() {
         s.checkNumber || "",
         s.managerName || "",
         sessionStatus,
-        sessionStarted,
-        sessionEnded,
+        "",
+        startParts.date,
+        startParts.time,
+        endParts.date,
+        endParts.time,
+        "",
         "",
         "",
         "",
@@ -797,21 +845,26 @@ async function handleExportSelectedSession() {
       ]);
     } else {
       rolls.forEach((r) => {
-        const ts = r.timestampDisplay || r.timestamp || "";
         const key =
           r.timestamp && r.dieId ? `${r.timestamp}__${r.dieId}` : null;
         const isInvalid = key && invalidSet.has(key);
-        const rollStatus = isInvalid ? "Invalid Roll" : sessionStatus;
+        const rollStatus = isInvalid ? "Invalid Roll" : "Valid Roll";
+
+        const rollParts = formatDateTimeParts(r.timestamp);
 
         rows.push([
           s.id,
           s.tableNumber || "",
           s.checkNumber || "",
           s.managerName || "",
+          sessionStatus,
           rollStatus,
-          sessionStarted,
-          sessionEnded,
-          ts,
+          startParts.date,
+          startParts.time,
+          endParts.date,
+          endParts.time,
+          rollParts.date,
+          rollParts.time,
           r.dieLabel || "",
           r.dieId || "",
           r.face,
