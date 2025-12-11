@@ -1,5 +1,5 @@
 // Inactivity timeout (ms)
-export const INACTIVITY_MS = 30000; // 30 seconds
+export const INACTIVITY_MS = 35000; // 35 seconds
 
 // Admin export password (front-end only, just a speed bump)
 export const EXPORT_PASSWORD = "ADMIN1234";

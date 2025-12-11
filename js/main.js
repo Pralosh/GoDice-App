@@ -268,48 +268,58 @@ async function dbSaveSessionEnd(sessionSummary) {
       timeZone: "America/New_York",
     });
 
+    const endedReason = sessionSummary.endedReason || "manual";
+
+    const status =
+      endedReason === "reward"
+        ? "Rewarded"
+        : endedReason === "invalid_cancel"
+        ? "Canceled"
+        : "Ended";
+
+    const reward = sessionSummary.reward || null;
+    const rewardSum =
+      reward && typeof reward.sum === "number" ? reward.sum : null;
+    const rewardText = reward ? reward.rewardText || null : null;
+    const rewardGranted = reward ? !!reward.granted : false;
+
+    // Sanitize invalidEvents but keep mini snapshots for CSV tagging
+    const invalidEventsRaw = Array.isArray(sessionSummary.invalidEvents)
+      ? sessionSummary.invalidEvents
+      : [];
+    const invalidEvents = invalidEventsRaw.map((ev) => ({
+      reason: ev && ev.reason ? String(ev.reason) : "",
+      at: ev && ev.at ? String(ev.at) : null,
+      rollsSnapshot: Array.isArray(ev.rollsSnapshot)
+        ? ev.rollsSnapshot.map((r) => ({
+            timestamp: r && r.timestamp ? String(r.timestamp) : null,
+            dieId: r && r.dieId ? String(r.dieId) : null,
+          }))
+        : [],
+    }));
+
     const record = {
       id: sessionSummary.id,
-      startedAt: sessionSummary.startedAt, // ISO
-      startedAtDisplay, // human-readable
-      endedAt: sessionSummary.endedAt, // ISO
-      endedAtDisplay, // human-readable
+      startedAt: sessionSummary.startedAt,
+      startedAtDisplay,
+      endedAt: sessionSummary.endedAt,
+      endedAtDisplay,
 
       tableNumber: sessionSummary.tableNumber,
       checkNumber: sessionSummary.checkNumber,
       managerId: sessionSummary.managerId,
       managerName: sessionSummary.managerName,
 
-      // How this session ended: "reward", "invalid_cancel", "manual", etc.
-      endedReason: sessionSummary.endedReason || "manual",
+      endedReason,
+      status, // Rewarded / Canceled / Ended
 
-      // High-level status (you can tweak labels if you like)
-      status:
-        sessionSummary.endedReason === "reward"
-          ? "rewarded"
-          : sessionSummary.endedReason === "invalid_cancel"
-          ? "cancelled_invalid"
-          : "ended",
-
-      // Rolls info
       rollsCount: sessionSummary.rolls ? sessionSummary.rolls.length : 0,
 
-      // Reward info (if any)
-      rewardSum:
-        sessionSummary.reward && typeof sessionSummary.reward.sum === "number"
-          ? sessionSummary.reward.sum
-          : null,
-      rewardText: sessionSummary.reward
-        ? sessionSummary.reward.rewardText || null
-        : null,
-      rewardGranted: sessionSummary.reward
-        ? !!sessionSummary.reward.granted
-        : false,
+      rewardSum,
+      rewardText,
+      rewardGranted,
 
-      // Invalid events (for retries / bad rolls)
-      invalidEvents: Array.isArray(sessionSummary.invalidEvents)
-        ? sessionSummary.invalidEvents
-        : [],
+      invalidEvents,
     };
 
     store.put(record);
@@ -452,8 +462,37 @@ function renderHistoryList(sessions) {
     row.dataset.sessionId = s.id;
 
     const started = s.startedAtDisplay || s.startedAt || "";
-    const status = s.status || "ended";
+
     const rollsCount = s.rollsCount != null ? s.rollsCount : "-";
+    const endedReason = s.endedReason || "ended";
+    const rewardSum = s.rewardSum;
+    const rewardText = s.rewardText;
+    const rewardGranted = !!s.rewardGranted;
+    const invalidCount = Array.isArray(s.invalidEvents)
+      ? s.invalidEvents.length
+      : 0;
+
+    // Build a human-friendly outcome label
+    let outcome = "Ended (no reward)";
+
+    if (endedReason === "reward" && rewardGranted && rewardSum != null) {
+      const shortRewardText = rewardText || "Reward granted";
+      outcome = `Reward ${rewardSum} - ${shortRewardText}`;
+    } else if (endedReason === "invalid_cancel") {
+      outcome =
+        invalidCount > 0
+          ? `Cancelled (invalid rolls)`
+          : `Cancelled (no reward)`;
+    } else if (endedReason === "manual") {
+      outcome = "Ended manually";
+    }
+
+    // Add info about invalid events if any
+    if (invalidCount > 0 && endedReason === "reward") {
+      outcome += ` • ${invalidCount} invalid before reward`;
+    } else if (invalidCount > 0 && endedReason !== "reward") {
+      outcome += ` • ${invalidCount} invalid`;
+    }
 
     row.innerHTML = `
             <span>${started}</span>
@@ -461,7 +500,7 @@ function renderHistoryList(sessions) {
             <span>${s.checkNumber || ""}</span>
             <span>${s.managerName || ""}</span>
             <span>${rollsCount}</span>
-            <span>${status}</span>
+            <span>${outcome}</span>
           `;
 
     row.addEventListener("click", async () => {
@@ -492,6 +531,30 @@ async function renderHistoryDetails(sessionId, sessionMeta) {
     const started = s.startedAtDisplay || s.startedAt || "";
     const ended = s.endedAtDisplay || s.endedAt || "";
 
+    const endedReason = s.endedReason || "ended";
+    const rewardSum = s.rewardSum;
+    const rewardText = s.rewardText;
+    const rewardGranted = !!s.rewardGranted;
+    const invalidEvents = Array.isArray(s.invalidEvents) ? s.invalidEvents : [];
+    const invalidCount = invalidEvents.length;
+
+    // Human-readable ended reason
+    let endedLabel = "Ended (no reward)";
+    if (endedReason === "reward" && rewardGranted) {
+      endedLabel = "Rewarded";
+    } else if (endedReason === "invalid_cancel") {
+      endedLabel = "Cancelled (invalid rolls)";
+    } else if (endedReason === "manual") {
+      endedLabel = "Ended manually";
+    }
+
+    // Reward summary
+    let rewardSummary = "None";
+    if (endedReason === "reward" && rewardGranted && rewardSum != null) {
+      const shortRewardText = rewardText || "Reward granted";
+      rewardSummary = `Sum ${rewardSum} – ${shortRewardText}`;
+    }
+
     const headerHtml = `
             <h4>Session Details</h4>
             <p><strong>Table:</strong> ${s.tableNumber || ""}</p>
@@ -500,6 +563,9 @@ async function renderHistoryDetails(sessionId, sessionMeta) {
             <p><strong>Started:</strong> ${started}</p>
             <p><strong>Ended:</strong> ${ended || "-"}</p>
             <p><strong>Rolls:</strong> ${rolls.length}</p>
+            <p><strong>Ended as:</strong> ${endedLabel}</p>
+            <p><strong>Reward:</strong> ${rewardSummary}</p>
+            <p><strong>Invalid events:</strong> ${invalidCount}</p>
           `;
 
     if (!rolls.length) {
@@ -584,7 +650,7 @@ async function handleExportAllSessions() {
       "tableNumber",
       "checkNumber",
       "managerName",
-      "status",
+      "status", // now roll-level status
       "sessionStarted",
       "sessionEnded",
       "rollTimestamp",
@@ -598,16 +664,30 @@ async function handleExportAllSessions() {
       const rolls = rollsPerSession[idx];
       const sessionStarted = s.startedAtDisplay || s.startedAt || "";
       const sessionEnded = s.endedAtDisplay || s.endedAt || "";
-      const status = s.status || "ended";
+      const sessionStatus = s.status || "ended";
+
+      // Build a lookup of invalid rolls for this session
+      const invalidSet = new Set();
+      if (Array.isArray(s.invalidEvents)) {
+        s.invalidEvents.forEach((ev) => {
+          if (Array.isArray(ev.rollsSnapshot)) {
+            ev.rollsSnapshot.forEach((rSnap) => {
+              if (rSnap && rSnap.timestamp && rSnap.dieId) {
+                invalidSet.add(`${rSnap.timestamp}__${rSnap.dieId}`);
+              }
+            });
+          }
+        });
+      }
 
       if (!rolls.length) {
-        // Optional: include a row even if there are no rolls
+        // Include a row even if there are no rolls
         rows.push([
           s.id,
           s.tableNumber || "",
           s.checkNumber || "",
           s.managerName || "",
-          status,
+          sessionStatus, // no rolls, so just show the session status
           sessionStarted,
           sessionEnded,
           "", // rollTimestamp
@@ -618,12 +698,17 @@ async function handleExportAllSessions() {
       } else {
         rolls.forEach((r) => {
           const ts = r.timestampDisplay || r.timestamp || "";
+          const key =
+            r.timestamp && r.dieId ? `${r.timestamp}__${r.dieId}` : null;
+          const isInvalid = key && invalidSet.has(key);
+          const rollStatus = isInvalid ? "Invalid Roll" : sessionStatus;
+
           rows.push([
             s.id,
             s.tableNumber || "",
             s.checkNumber || "",
             s.managerName || "",
-            status,
+            rollStatus, // 👈 per-roll status
             sessionStarted,
             sessionEnded,
             ts,
@@ -668,7 +753,7 @@ async function handleExportSelectedSession() {
       "tableNumber",
       "checkNumber",
       "managerName",
-      "status",
+      "status", // roll-level
       "sessionStarted",
       "sessionEnded",
       "rollTimestamp",
@@ -680,7 +765,21 @@ async function handleExportSelectedSession() {
 
     const sessionStarted = s.startedAtDisplay || s.startedAt || "";
     const sessionEnded = s.endedAtDisplay || s.endedAt || "";
-    const status = s.status || "ended";
+    const sessionStatus = s.status || "ended";
+
+    // Build invalid set for this single session
+    const invalidSet = new Set();
+    if (Array.isArray(s.invalidEvents)) {
+      s.invalidEvents.forEach((ev) => {
+        if (Array.isArray(ev.rollsSnapshot)) {
+          ev.rollsSnapshot.forEach((rSnap) => {
+            if (rSnap && rSnap.timestamp && rSnap.dieId) {
+              invalidSet.add(`${rSnap.timestamp}__${rSnap.dieId}`);
+            }
+          });
+        }
+      });
+    }
 
     if (!rolls.length) {
       rows.push([
@@ -688,7 +787,7 @@ async function handleExportSelectedSession() {
         s.tableNumber || "",
         s.checkNumber || "",
         s.managerName || "",
-        status,
+        sessionStatus,
         sessionStarted,
         sessionEnded,
         "",
@@ -699,12 +798,17 @@ async function handleExportSelectedSession() {
     } else {
       rolls.forEach((r) => {
         const ts = r.timestampDisplay || r.timestamp || "";
+        const key =
+          r.timestamp && r.dieId ? `${r.timestamp}__${r.dieId}` : null;
+        const isInvalid = key && invalidSet.has(key);
+        const rollStatus = isInvalid ? "Invalid Roll" : sessionStatus;
+
         rows.push([
           s.id,
           s.tableNumber || "",
           s.checkNumber || "",
           s.managerName || "",
-          status,
+          rollStatus,
           sessionStarted,
           sessionEnded,
           ts,
@@ -884,7 +988,19 @@ function startSession() {
 }
 
 function endSession(reason = "manual") {
+  // If called directly as an event handler, 'reason' will be an event object.
+  if (reason && typeof reason === "object") {
+    reason = "manual";
+  }
+
   if (!sessionState.active || !sessionState.current) return;
+
+  // Decide a more specific reason for manual
+  let effectiveReason = reason;
+  if (reason === "manual") {
+    effectiveReason =
+      sessionState.rolls.length === 0 ? "ended_no_rolls" : "manual_with_rolls";
+  }
 
   const endedAt = new Date().toISOString();
   const summary = {
@@ -894,8 +1010,8 @@ function endSession(reason = "manual") {
     invalidEvents: sessionState.invalidEvents
       ? [...sessionState.invalidEvents]
       : [],
-    reward: sessionState.reward || null, // NEW - reward info
-    endedReason: reason, // NEW - why this session ended
+    reward: sessionState.reward || null,
+    endedReason: effectiveReason,
   };
 
   console.log("[SESSION ENDED]", summary);
@@ -908,14 +1024,15 @@ function endSession(reason = "manual") {
   sessionState.active = false;
   sessionState.current = null;
   sessionState.rolls = [];
+  sessionState.invalidEvents = [];
+  sessionState.reward = null;
 
-  // 🔁 Clear any pending retry state
+  // Clear retry state
   if (retryTimer) {
     clearTimeout(retryTimer);
     retryTimer = null;
   }
   retryModalOpen = false;
-  // Make sure the retry modal is not left visible if it was open
   if (retryBackdrop) {
     retryBackdrop.style.display = "none";
   }
@@ -923,7 +1040,7 @@ function endSession(reason = "manual") {
   // Update UI
   sessionInfo.textContent = "No active game session";
   connectBtn.disabled = true;
-  endSessionBtn.disabled = true; // no active session -> button should be disabled
+  endSessionBtn.disabled = true;
 
   // Show overlay again for next table
   startOverlay.style.display = "flex";
@@ -932,10 +1049,10 @@ function endSession(reason = "manual") {
   managerSelect.value = "";
   overlayError.textContent = "";
 
-  gameCompleted = false; // keep state clean for next time
+  gameCompleted = false;
 }
 
-endSessionBtn.addEventListener("click", endSession);
+endSessionBtn.addEventListener("click", () => endSession("manual"));
 startSessionBtn.addEventListener("click", startSession);
 
 // Simple reward configuration by sum of the two dice
