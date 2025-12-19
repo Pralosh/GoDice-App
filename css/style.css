@@ -1,0 +1,386 @@
+body {
+  font-family: system-ui, Arial, sans-serif;
+  margin: 0;
+  background: #0b1020;
+  color: #f9fafb;
+}
+header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #111827;
+  background: radial-gradient(circle at top, #1f2937, #020617);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+h1 {
+  margin: 0;
+  font-size: 20px;
+}
+main {
+  padding: 16px 20px 32px;
+}
+
+.btn {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #4b5563;
+  background: #111827;
+  color: #f9fafb;
+  cursor: pointer;
+  font-size: 14px;
+}
+.btn[disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn-secondary {
+  background: #020617;
+}
+
+.top-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+#sessionInfo {
+  font-size: 14px;
+  color: #e5e7eb;
+}
+
+#diceList {
+  margin-top: 12px;
+}
+.card {
+  border: 1px solid #374151;
+  background: #020617;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 10px 0;
+  max-width: 480px;
+  transition: opacity 0.3s ease;
+}
+.card h3 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+}
+.line {
+  font-size: 13px;
+  color: #e5e7eb;
+  margin: 2px 0;
+}
+.muted {
+  opacity: 0.5;
+}
+
+/* Start Game overlay */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.overlay-card {
+  background: #020617;
+  border-radius: 12px;
+  padding: 20px;
+  width: 320px;
+  border: 1px solid #4b5563;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+}
+.overlay-card h2 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+}
+.overlay-card p {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  color: #e5e7eb;
+}
+.field {
+  margin-bottom: 10px;
+}
+.field label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.field input,
+.field select {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #4b5563;
+  background: #020617;
+  color: #f9fafb;
+  font-size: 13px;
+}
+.error-text {
+  color: #fca5a5;
+  font-size: 12px;
+  min-height: 16px;
+}
+.overlay-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+}
+
+/* Guidelines modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.85);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+.modal {
+  background: #020617;
+  border-radius: 12px;
+  padding: 20px;
+  width: 360px;
+  border: 1px solid #4b5563;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+}
+.modal h3 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+}
+.modal p,
+.modal ul {
+  font-size: 13px;
+  color: #e5e7eb;
+  margin: 4px 0;
+}
+.modal ul {
+  padding-left: 18px;
+}
+.modal-footer {
+  margin-top: 12px;
+  text-align: right;
+}
+.modal-wide {
+  width: min(800px, 95vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.reward-modal {
+  width: min(420px, 95vw);
+  text-align: center;
+}
+.retry-modal {
+  width: min(380px, 95vw);
+}
+
+.retry-text {
+  font-size: 14px;
+  color: #e5e7eb;
+  margin-top: 4px;
+}
+.reward-subtitle {
+  font-size: 19px;
+  color: #9ca3af;
+  margin: 2px 0 10px;
+}
+.reward-main {
+  margin-top: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+.reward-sum {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid #4b5563;
+  background: #020617;
+}
+.reward-sum-label {
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9ca3af;
+}
+.reward-sum-value {
+  font-size: 36px;
+  font-weight: 700;
+  margin-top: 2px;
+  color: #f9fafb;
+}
+.reward-text {
+  font-size: 21px;
+  color: #f9fafb;
+}
+.reward-rolls {
+  font-size: 18px;
+  color: #9ca3af;
+}
+.password-modal {
+  width: min(360px, 95vw);
+}
+.password-input-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+.password-input {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #4b5563;
+  background: #020617;
+  color: #f9fafb;
+  font-size: 13px;
+}
+.password-toggle {
+  white-space: nowrap;
+  font-size: 12px;
+  padding-inline: 8px;
+}
+.password-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.history-layout {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  flex: 1;
+  min-height: 220px;
+}
+.history-list {
+  flex: 1.4;
+  border-right: 1px solid #1f2937;
+  padding-right: 8px;
+  overflow-y: auto;
+}
+.history-details {
+  flex: 1;
+  padding-left: 8px;
+  overflow-y: auto;
+  border-left: 1px solid #1f2937;
+}
+.history-list-header,
+.history-row {
+  display: grid;
+  grid-template-columns: 1.6fr 0.7fr 0.9fr 1.3fr 0.6fr 0.9fr;
+  column-gap: 6px;
+  font-size: 13px;
+  align-items: center;
+}
+.history-list-header {
+  font-weight: 600;
+  color: #e5e7eb;
+  border-bottom: 1px solid #374151;
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+}
+.history-list-body {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.history-row {
+  padding: 4px 0;
+  border-bottom: 1px dashed #1f2937;
+  cursor: pointer;
+}
+.history-row:hover {
+  background: #111827;
+}
+.history-row.selected {
+  background: #1f2937;
+}
+.history-details h4 {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+}
+.history-details p {
+  margin: 2px 0;
+  font-size: 13px;
+  color: #e5e7eb;
+}
+.history-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.history-header-row h3 {
+  margin-bottom: 4px;
+}
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.rolls-list {
+  margin-top: 8px;
+  font-size: 13px;
+  border-top: 1px solid #1f2937;
+  padding-top: 6px;
+}
+.roll-row {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px dashed #1f2937;
+  padding: 2px 0;
+}
+.roll-row:last-child {
+  border-bottom: none;
+}
+
+/* Visual dice area */
+.faces-section-title {
+  margin: 20px 0 8px 0;
+  font-size: 16px;
+}
+#diceFaces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.dice-face {
+  text-align: center;
+  color: #e5e7eb;
+}
+.dice-face-label {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.dice-square {
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  border: 2px solid #e5e7eb;
+  background: #111827;
+  box-shadow: 0 0 0 2px #1f2937;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.dice-square-value {
+  font-size: 32px;
+  font-weight: 700;
+}
+.dice-face-value {
+  font-size: 14px;
+}
