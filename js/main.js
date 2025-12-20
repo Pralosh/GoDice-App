@@ -5,8 +5,9 @@ import {
   dbSaveRoll,
   dbGetAllSessions,
   dbGetRollsForSession,
+  dbCountRollsForSession,
 } from "./db.js";
-
+import { createSessionController } from "./state.js";
 /**********************************
  * SESSION STATE (in memory only)
  **********************************/
@@ -152,6 +153,20 @@ const exportPasswordCancelBtn = document.getElementById(
   "exportPasswordCancelBtn"
 );
 
+const session = createSessionController({
+  managers: MANAGERS,
+  db: { dbSaveSessionStart, dbSaveSessionEnd, dbSaveRoll },
+  getRewardForSum,
+  isRetryModalOpen: () => retryModalOpen,
+  onRetryNeeded: () => openRetryModal(),
+  onReward: ({ sum, rewardText, firstRoll, secondRoll }) => {
+    openRewardModal(sum, rewardText, firstRoll, secondRoll);
+    // Preserve your current behavior: auto-end immediately after reward modal shows.
+    endSession("reward");
+  },
+  retryRoundTimeoutMs: RETRY_ROUND_TIMEOUT_MS,
+});
+
 function updateConnectButtonLabel() {
   if (!diceList) return;
 
@@ -216,7 +231,7 @@ function formatDateTimeParts(isoString) {
 /**********************************
  * HISTORY VIEW LOGIC
  **********************************/
-function renderHistoryList(sessions) {
+async function renderHistoryList(sessions) {
   historyListEl.innerHTML = "";
   historyDetailsEl.innerHTML =
     '<p style="font-size:13px; color:#9ca3af;">Select a session to view its rolls.</p>';
@@ -224,14 +239,14 @@ function renderHistoryList(sessions) {
   currentHistorySessionMeta = null;
   exportSessionBtn.disabled = true;
 
-  sessions.forEach((s) => {
+  for (const s of sessions) {
     const row = document.createElement("div");
     row.className = "history-row";
     row.dataset.sessionId = s.id;
 
     const started = s.startedAtDisplay || s.startedAt || "";
 
-    const rollsCount = s.rollsCount != null ? s.rollsCount : "-";
+    const rollsCount = await dbCountRollsForSession(s.id);
     const endedReason = s.endedReason || "ended";
     const rewardSum = s.rewardSum;
     const rewardText = s.rewardText;
@@ -280,7 +295,7 @@ function renderHistoryList(sessions) {
     });
 
     historyListEl.appendChild(row);
-  });
+  }
 
   if (!sessions.length) {
     historyDetailsEl.innerHTML =
@@ -374,7 +389,7 @@ async function openHistory() {
 
   try {
     const sessions = await dbGetAllSessions();
-    renderHistoryList(sessions);
+    await renderHistoryList(sessions);
   } catch (e) {
     console.error("[HISTORY] load sessions failed:", e);
     historyListEl.innerHTML =
@@ -738,49 +753,30 @@ function startSession() {
   const check = checkInput.value.trim();
   const managerId = managerSelect.value;
 
-  if (!table || !check || !managerId) {
-    overlayError.textContent =
-      "Please fill table, check, and manager to start.";
-    return;
-  }
+  const result = session.startSession({
+    tableNumber: table,
+    checkNumber: check,
+    managerId,
+  });
 
-  const manager = MANAGERS.find((m) => m.id === managerId);
-  if (!manager) {
-    overlayError.textContent = "Please select a valid manager.";
+  if (!result.ok) {
+    overlayError.textContent = result.error;
     return;
   }
 
   overlayError.textContent = "";
-
-  const sessionId = "sess_" + Date.now();
-  const startedAt = new Date().toISOString();
-
-  sessionState.active = true;
-  sessionState.current = {
-    id: sessionId,
-    startedAt,
-    tableNumber: table,
-    checkNumber: check,
-    managerId: manager.id,
-    managerName: manager.name,
-  };
-  sessionState.rolls = []; // reset in-memory rolls
-  sessionState.invalidEvents = []; // NEW - reset invalid events
-  sessionState.reward = null; // NEW - reset reward info
-  gameCompleted = false; // ✅ reset at start of each game
-
-  console.log("[SESSION STARTED]", sessionState.current);
-  dbSaveSessionStart(sessionState.current);
 
   // Reset labels and dice UI at the start of each game
   resetLabelGen();
   clearAllDiceUI();
 
   // Update UI
-  sessionInfo.textContent = formatSessionInfo(sessionState.current);
+  sessionInfo.textContent = formatSessionInfo(result.session);
   startOverlay.style.display = "none";
   connectBtn.disabled = false;
   endSessionBtn.disabled = false;
+
+  gameCompleted = false; // keep this for now; later we’ll remove it when UI moves
 }
 
 function endSession(reason = "manual") {
@@ -789,49 +785,20 @@ function endSession(reason = "manual") {
     reason = "manual";
   }
 
-  if (!sessionState.active || !sessionState.current) return;
+  // Let state.js persist + reset session data
+  const summary = session.endSession(reason);
+  if (!summary) return;
 
-  // Decide a more specific reason for manual
-  let effectiveReason = reason;
-  if (reason === "manual") {
-    effectiveReason =
-      sessionState.rolls.length === 0 ? "ended_no_rolls" : "manual_with_rolls";
-  }
-
-  const endedAt = new Date().toISOString();
-  const summary = {
-    ...sessionState.current,
-    endedAt,
-    rolls: [...sessionState.rolls],
-    invalidEvents: sessionState.invalidEvents
-      ? [...sessionState.invalidEvents]
-      : [],
-    reward: sessionState.reward || null,
-    endedReason: effectiveReason,
-  };
-
-  console.log("[SESSION ENDED]", summary);
-  dbSaveSessionEnd(summary);
-
-  // Disconnect all dice at end of game
+  // Disconnect all dice at end of game (existing behavior)
   disconnectAllDice();
 
-  // Reset session state
-  sessionState.active = false;
-  sessionState.current = null;
-  sessionState.rolls = [];
-  sessionState.invalidEvents = [];
-  sessionState.reward = null;
-
-  // Clear retry state
+  // Clear retry state (existing UI state)
   if (retryTimer) {
     clearTimeout(retryTimer);
     retryTimer = null;
   }
   retryModalOpen = false;
-  if (retryBackdrop) {
-    retryBackdrop.style.display = "none";
-  }
+  if (retryBackdrop) retryBackdrop.style.display = "none";
 
   // Update UI
   sessionInfo.textContent = "No active game session";
@@ -877,113 +844,7 @@ function getRewardForSum(sum) {
  * ROLL RECORDING
  **********************************/
 function recordRoll(diceId, dieLabel, face) {
-  if (!sessionState.active || !sessionState.current || gameCompleted) {
-    console.log("[ROLL IGNORED] No active session or game already completed", {
-      diceId,
-      dieLabel,
-      face,
-    });
-    return;
-  }
-
-  // If a retry modal is open, ignore incoming rolls until user decides
-  if (retryModalOpen) {
-    console.log("[ROLL IGNORED] retry modal open", { diceId, dieLabel, face });
-    return;
-  }
-
-  const now = new Date().toISOString();
-  const s = sessionState.current;
-
-  const record = {
-    timestamp: now,
-    tableNumber: s.tableNumber,
-    checkNumber: s.checkNumber,
-    managerId: s.managerId,
-    managerName: s.managerName,
-    dieId: diceId,
-    dieLabel,
-    face: Number(face) || 0,
-  };
-
-  sessionState.rolls.push(record);
-  console.log("[ROLL RECORDED]", record);
-  dbSaveRoll(s.id, record);
-
-  // Clear any pending "one-roll" retry timer
-  if (retryTimer) {
-    clearTimeout(retryTimer);
-    retryTimer = null;
-  }
-
-  const rollsThisRound = sessionState.rolls;
-
-  if (rollsThisRound.length === 1) {
-    // First roll of this round – start a short timer to see if second roll arrives
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      if (
-        sessionState.active &&
-        !gameCompleted &&
-        sessionState.rolls.length === 1
-      ) {
-        console.log(
-          "[RETRY] Only one roll recorded after timeout – offering retry."
-        );
-
-        // Log invalid event for DB
-        sessionState.invalidEvents.push({
-          reason: "single_roll_timeout",
-          at: new Date().toISOString(),
-          rollsSnapshot: [...sessionState.rolls],
-        });
-
-        openRetryModal();
-      }
-    }, RETRY_ROUND_TIMEOUT_MS);
-  } else if (rollsThisRound.length === 2) {
-    const [firstRoll, secondRoll] = rollsThisRound;
-
-    // ✅ Rule: second roll must come from a different die
-    if (firstRoll.dieId === secondRoll.dieId) {
-      console.log(
-        "[RETRY] Two rolls came from the same die – offering retry.",
-        { firstRoll, secondRoll }
-      );
-
-      // Log invalid event
-      sessionState.invalidEvents.push({
-        reason: "same_die_twice",
-        at: new Date().toISOString(),
-        rollsSnapshot: [firstRoll, secondRoll],
-      });
-
-      openRetryModal();
-      return;
-    }
-
-    // Valid: two different dice → store reward, auto-end game
-    const sum = (firstRoll.face || 0) + (secondRoll.face || 0);
-    const rewardText = getRewardForSum(sum);
-
-    sessionState.reward = {
-      sum,
-      rewardText,
-      granted: true,
-    };
-
-    console.log("[REWARD] total:", sum, "reward:", rewardText);
-    openRewardModal(sum, rewardText, firstRoll, secondRoll);
-
-    gameCompleted = true;
-    endSession("reward"); // 🔥 game ends automatically, reward modal is just visual now
-  } else {
-    // More than 2 rolls in a single round – not expected, just log & ignore
-    console.warn(
-      "[ROLL] More than 2 rolls recorded in one game round – ignoring extra.",
-      rollsThisRound
-    );
-  }
+  session.recordRoll(diceId, dieLabel, face);
 }
 
 /**********************************
@@ -1095,9 +956,7 @@ function closeRetryModal() {
 }
 
 function performRetryRoll() {
-  // Clear in-memory rolls, but keep the session active
-  sessionState.rolls = [];
-  gameCompleted = false;
+  session.resetForRetry(); // <-- NEW
 
   // Reset dice UI: "Last roll" text + little dice boxes
   diceState.forEach((st) => {
@@ -1310,7 +1169,7 @@ GoDice.prototype.onDiceDisconnected = (diceId) => {
 let connecting = false;
 connectBtn.addEventListener("click", async () => {
   if (connecting) return;
-  if (!sessionState.active) {
+  if (!session.isActive()) {
     alert("Start a game session first.");
     return;
   }

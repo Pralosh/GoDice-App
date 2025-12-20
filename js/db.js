@@ -270,3 +270,21 @@ export async function dbGetRollsForSession(sessionId) {
     request.onerror = () => reject(request.error);
   });
 }
+
+export async function dbCountRollsForSession(sessionId) {
+  try {
+    const db = await openDatabase();
+    const tx = db.transaction("rolls", "readonly");
+    const store = tx.objectStore("rolls");
+    const index = store.index("sessionId");
+
+    return await new Promise((resolve) => {
+      const req = index.count(sessionId);
+      req.onsuccess = () => resolve(req.result || 0);
+      req.onerror = () => resolve(0);
+    });
+  } catch (e) {
+    console.error("[DB] count rolls failed:", e);
+    return 0;
+  }
+}
