@@ -180,6 +180,9 @@ function updateConnectButtonLabel() {
 /**********************************
  * INDEXEDDB HELPERS (local storage)
  **********************************/
+function rollKey(ts, dieId) {
+  return ts && dieId ? `${ts}__${dieId}` : "";
+}
 
 function csvEscape(value) {
   if (value === null || value === undefined) return "";
@@ -258,16 +261,20 @@ async function renderHistoryList(sessions) {
     // Build a human-friendly outcome label
     let outcome = "Ended (no reward)";
 
-    if (endedReason === "reward" && rewardGranted && rewardSum != null) {
-      const shortRewardText = rewardText || "Reward granted";
-      outcome = `Reward ${rewardSum} - ${shortRewardText}`;
-    } else if (endedReason === "invalid_cancel") {
-      outcome =
-        invalidCount > 0
-          ? `Cancelled (invalid rolls)`
-          : `Cancelled (no reward)`;
-    } else if (endedReason === "manual") {
-      outcome = "Ended manually";
+    const sessionStatus = deriveSessionStatus(s);
+
+    if (sessionStatus === "Won" || sessionStatus === "No Win") {
+      const shortRewardText = rewardText || "Reward";
+      outcome = `${sessionStatus} • Sum ${rewardSum} – ${shortRewardText}`;
+    } else if (sessionStatus === "Canceled") {
+      outcome = invalidCount > 0 ? "Canceled (invalid rolls)" : "Canceled";
+    } else {
+      // Ended
+      if (endedReason === "ended_no_rolls" || rollsCount === 0) {
+        outcome = "Ended (No Rolls)";
+      } else {
+        outcome = "Ended (Incomplete)";
+      }
     }
 
     // Add info about invalid events if any
@@ -322,13 +329,19 @@ async function renderHistoryDetails(sessionId, sessionMeta) {
     const invalidCount = invalidEvents.length;
 
     // Human-readable ended reason
-    let endedLabel = "Ended (no reward)";
-    if (endedReason === "reward" && rewardGranted) {
-      endedLabel = "Rewarded";
-    } else if (endedReason === "invalid_cancel") {
-      endedLabel = "Cancelled (invalid rolls)";
-    } else if (endedReason === "manual") {
-      endedLabel = "Ended manually";
+    let endedLabel = "Ended";
+    const sessionStatus = deriveSessionStatus(s);
+
+    if (sessionStatus === "Won") endedLabel = "Won";
+    else if (sessionStatus === "No Win") endedLabel = "No Win";
+    else if (sessionStatus === "Canceled") endedLabel = "Canceled";
+    else {
+      // Ended
+      if (endedReason === "ended_no_rolls" || rolls.length === 0) {
+        endedLabel = "Ended (No Rolls)";
+      } else {
+        endedLabel = "Ended (Incomplete)";
+      }
     }
 
     // Reward summary
@@ -409,6 +422,40 @@ function closeHistory() {
   }
 }
 
+function isNoWinRewardText(text) {
+  if (!text) return false;
+  return /no discount|better luck|no win|no prize/i.test(String(text));
+}
+
+function deriveSessionStatus(s) {
+  const endedReason = s.endedReason || "manual";
+  const rewardGranted = !!s.rewardGranted;
+
+  if (endedReason === "reward" && rewardGranted) {
+    return isNoWinRewardText(s.rewardText) ? "No Win" : "Won";
+  }
+  if (endedReason === "invalid_cancel") return "Canceled";
+  return "Ended";
+}
+
+function deriveRewardColumn(s, rolls) {
+  const endedReason = s.endedReason || "manual";
+  const rewardGranted = !!s.rewardGranted;
+
+  if (endedReason === "reward" && rewardGranted) {
+    return s.rewardText || ""; // always show, even "No discount..."
+  }
+
+  if (endedReason === "invalid_cancel") return "N/A (Canceled)";
+
+  const rollsCount = Array.isArray(rolls) ? rolls.length : 0;
+  if (endedReason === "ended_no_rolls" || rollsCount === 0) {
+    return "N/A (Ended - No Rolls)";
+  }
+
+  return "N/A (Ended - Incomplete)";
+}
+
 async function handleExportAllSessions() {
   const ok = await requireExportPassword();
   if (!ok) return;
@@ -433,8 +480,9 @@ async function handleExportAllSessions() {
       "tableNumber",
       "checkNumber",
       "managerName",
-      "sessionStatus", // Rewarded / Canceled / Ended (session-level)
-      "rollStatus", // Valid Roll / Invalid Roll / "" (roll-level)
+      "sessionStatus", // Won / No Win / Canceled / Ended
+      "reward", // reward text OR N/A(...)
+      "rollStatus",
       "sessionStartDate",
       "sessionStartTime",
       "sessionEndDate",
@@ -450,7 +498,8 @@ async function handleExportAllSessions() {
     sessions.forEach((s, idx) => {
       const rolls = rollsPerSession[idx];
 
-      const sessionStatus = s.status || "Ended";
+      const sessionStatus = deriveSessionStatus(s);
+      const rewardCol = deriveRewardColumn(s, rolls);
 
       const startParts = formatDateTimeParts(s.startedAt);
       const endParts = formatDateTimeParts(s.endedAt);
@@ -461,12 +510,59 @@ async function handleExportAllSessions() {
         s.invalidEvents.forEach((ev) => {
           if (Array.isArray(ev.rollsSnapshot)) {
             ev.rollsSnapshot.forEach((rSnap) => {
-              if (rSnap && rSnap.timestamp && rSnap.dieId) {
-                invalidSet.add(`${rSnap.timestamp}__${rSnap.dieId}`);
-              }
+              const k = rollKey(rSnap?.timestamp, rSnap?.dieId);
+              if (k) invalidSet.add(k);
             });
           }
         });
+      }
+
+      // Build a lookup of the winning (valid) rolls for this session (only 2 rolls)
+      const validSet = new Set();
+      if (Array.isArray(s.validRollsSnapshot)) {
+        s.validRollsSnapshot.forEach((rSnap) => {
+          const k = rollKey(rSnap?.timestamp, rSnap?.dieId);
+          if (k) validSet.add(k);
+        });
+      }
+
+      // Session is considered "rewarded" (Won/No Win) only if endedReason=reward AND rewardGranted=true
+      const sessionIsRewarded = s.endedReason === "reward" && !!s.rewardGranted;
+
+      // ✅ Fallback for older sessions that don't have validRollsSnapshot saved yet
+      if (
+        sessionIsRewarded &&
+        validSet.size === 0 &&
+        Array.isArray(rolls) &&
+        rolls.length >= 2
+      ) {
+        // Find the last two rolls with different dice IDs
+        const sorted = [...rolls].sort(
+          (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+        );
+
+        let second = null;
+        let first = null;
+
+        for (let i = sorted.length - 1; i >= 0; i--) {
+          if (!second) {
+            second = sorted[i];
+            continue;
+          }
+          if (
+            sorted[i].dieId &&
+            second.dieId &&
+            sorted[i].dieId !== second.dieId
+          ) {
+            first = sorted[i];
+            break;
+          }
+        }
+
+        if (first && second) {
+          validSet.add(rollKey(first.timestamp, first.dieId));
+          validSet.add(rollKey(second.timestamp, second.dieId));
+        }
       }
 
       if (!rolls.length) {
@@ -477,6 +573,7 @@ async function handleExportAllSessions() {
           s.checkNumber || "",
           s.managerName || "",
           sessionStatus,
+          rewardCol,
           "", // rollStatus
           startParts.date,
           startParts.time,
@@ -490,10 +587,20 @@ async function handleExportAllSessions() {
         ]);
       } else {
         rolls.forEach((r) => {
-          const key =
-            r.timestamp && r.dieId ? `${r.timestamp}__${r.dieId}` : null;
-          const isInvalid = key && invalidSet.has(key);
-          const rollStatus = isInvalid ? "Invalid Roll" : "Valid Roll";
+          const key = rollKey(r.timestamp, r.dieId);
+
+          let rollStatus = "";
+          if (invalidSet.has(key)) {
+            rollStatus = "Invalid Roll";
+          } else if (!sessionIsRewarded) {
+            // If the session never completed a valid two-dice outcome,
+            // then ALL rolls in that session are invalid attempts.
+            rollStatus = "Invalid Roll";
+          } else {
+            // Session ended with a valid outcome:
+            // ONLY the winning pair is Valid Roll, everything else is Invalid Roll.
+            rollStatus = validSet.has(key) ? "Valid Roll" : "Invalid Roll";
+          }
 
           const rollParts = formatDateTimeParts(r.timestamp);
 
@@ -503,6 +610,7 @@ async function handleExportAllSessions() {
             s.checkNumber || "",
             s.managerName || "",
             sessionStatus, // 👈 full session outcome
+            rewardCol, // 👈 reward column
             rollStatus, // 👈 per-roll validity
             startParts.date,
             startParts.time,
@@ -552,6 +660,7 @@ async function handleExportSelectedSession() {
       "checkNumber",
       "managerName",
       "sessionStatus", // Rewarded / Canceled / Ended
+      "reward", // reward text OR N/A(...)
       "rollStatus", // Valid Roll / Invalid Roll / ""
       "sessionStartDate",
       "sessionStartTime",
@@ -565,7 +674,9 @@ async function handleExportSelectedSession() {
     ];
     const rows = [header];
 
-    const sessionStatus = s.status || "Ended";
+    const sessionStatus = deriveSessionStatus(s);
+    const rewardCol = deriveRewardColumn(s, rolls);
+
     const startParts = formatDateTimeParts(s.startedAt);
     const endParts = formatDateTimeParts(s.endedAt);
 
@@ -575,12 +686,57 @@ async function handleExportSelectedSession() {
       s.invalidEvents.forEach((ev) => {
         if (Array.isArray(ev.rollsSnapshot)) {
           ev.rollsSnapshot.forEach((rSnap) => {
-            if (rSnap && rSnap.timestamp && rSnap.dieId) {
-              invalidSet.add(`${rSnap.timestamp}__${rSnap.dieId}`);
-            }
+            const k = rollKey(rSnap?.timestamp, rSnap?.dieId);
+            if (k) invalidSet.add(k);
           });
         }
       });
+    }
+
+    // Build winning (valid) set (only 2 rolls)
+    const validSet = new Set();
+    if (Array.isArray(s.validRollsSnapshot)) {
+      s.validRollsSnapshot.forEach((rSnap) => {
+        const k = rollKey(rSnap?.timestamp, rSnap?.dieId);
+        if (k) validSet.add(k);
+      });
+    }
+
+    const sessionIsRewarded = s.endedReason === "reward" && !!s.rewardGranted;
+
+    // ✅ Fallback for older sessions that don't have validRollsSnapshot saved yet
+    if (
+      sessionIsRewarded &&
+      validSet.size === 0 &&
+      Array.isArray(rolls) &&
+      rolls.length >= 2
+    ) {
+      const sorted = [...rolls].sort(
+        (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+      );
+
+      let second = null;
+      let first = null;
+
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        if (!second) {
+          second = sorted[i];
+          continue;
+        }
+        if (
+          sorted[i].dieId &&
+          second.dieId &&
+          sorted[i].dieId !== second.dieId
+        ) {
+          first = sorted[i];
+          break;
+        }
+      }
+
+      if (first && second) {
+        validSet.add(rollKey(first.timestamp, first.dieId));
+        validSet.add(rollKey(second.timestamp, second.dieId));
+      }
     }
 
     if (!rolls.length) {
@@ -590,6 +746,7 @@ async function handleExportSelectedSession() {
         s.checkNumber || "",
         s.managerName || "",
         sessionStatus,
+        rewardCol,
         "",
         startParts.date,
         startParts.time,
@@ -603,10 +760,16 @@ async function handleExportSelectedSession() {
       ]);
     } else {
       rolls.forEach((r) => {
-        const key =
-          r.timestamp && r.dieId ? `${r.timestamp}__${r.dieId}` : null;
-        const isInvalid = key && invalidSet.has(key);
-        const rollStatus = isInvalid ? "Invalid Roll" : "Valid Roll";
+        const key = rollKey(r.timestamp, r.dieId);
+
+        let rollStatus = "";
+        if (invalidSet.has(key)) {
+          rollStatus = "Invalid Roll";
+        } else if (!sessionIsRewarded) {
+          rollStatus = "Invalid Roll";
+        } else {
+          rollStatus = validSet.has(key) ? "Valid Roll" : "Invalid Roll";
+        }
 
         const rollParts = formatDateTimeParts(r.timestamp);
 
@@ -616,6 +779,7 @@ async function handleExportSelectedSession() {
           s.checkNumber || "",
           s.managerName || "",
           sessionStatus,
+          rewardCol,
           rollStatus,
           startParts.date,
           startParts.time,

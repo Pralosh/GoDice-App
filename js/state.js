@@ -32,6 +32,8 @@ export function createSessionController({
     rolls: [],
     invalidEvents: [],
     reward: null,
+    validRollsSnapshot: null,
+    hadAnyRolls: false,
     gameCompleted: false,
   };
 
@@ -48,6 +50,8 @@ export function createSessionController({
     state.rolls = [];
     state.invalidEvents = [];
     state.reward = null;
+    state.validRollsSnapshot = null;
+    state.hadAnyRolls = false;
     state.gameCompleted = false;
     clearRetryTimer();
   }
@@ -98,8 +102,9 @@ export function createSessionController({
     // Decide a more specific reason for manual
     let effectiveReason = reason;
     if (reason === "manual") {
-      effectiveReason =
-        state.rolls.length === 0 ? "ended_no_rolls" : "manual_with_rolls";
+      effectiveReason = state.hadAnyRolls
+        ? "manual_with_rolls"
+        : "ended_no_rolls";
     }
 
     const endedAt = nowIso();
@@ -107,12 +112,22 @@ export function createSessionController({
     const summary = {
       ...state.current,
       endedAt,
+      endedReason: effectiveReason,
+
       rolls: [...state.rolls],
       invalidEvents: Array.isArray(state.invalidEvents)
         ? [...state.invalidEvents]
         : [],
+
       reward: state.reward || null,
-      endedReason: effectiveReason,
+
+      rewardSum: state.reward ? state.reward.sum : null,
+      rewardText: state.reward ? state.reward.rewardText : null,
+      rewardGranted: state.reward ? !!state.reward.granted : false,
+
+      validRollsSnapshot: Array.isArray(state.validRollsSnapshot)
+        ? [...state.validRollsSnapshot]
+        : null,
     };
 
     // Persist end
@@ -152,6 +167,7 @@ export function createSessionController({
       face: Number(face) || 0,
     };
 
+    state.hadAnyRolls = true;
     state.rolls.push(record);
     db.dbSaveRoll(s.id, record);
 
@@ -200,13 +216,19 @@ export function createSessionController({
       const sum = (firstRoll.face || 0) + (secondRoll.face || 0);
       const rewardText = getRewardForSum(sum);
 
+      // ✅ Save the winning pair for exports
+      state.validRollsSnapshot = [firstRoll, secondRoll];
+
+      // ✅ Save reward
       state.reward = { sum, rewardText, granted: true };
+
+      // ✅ Prevent any extra rolls sneaking in before we end the session
+      state.gameCompleted = true;
 
       if (typeof onReward === "function") {
         onReward({ sum, rewardText, firstRoll, secondRoll });
       }
 
-      state.gameCompleted = true;
       return { ok: true, status: "rewarded", sum, rewardText };
     }
 

@@ -99,8 +99,11 @@ export async function dbSaveSessionEnd(sessionSummary) {
     const tx = db.transaction("sessions", "readwrite");
     const store = tx.objectStore("sessions");
 
+    // Ensure endedAt exists
+    const endedAt = sessionSummary.endedAt || new Date().toISOString();
+
     const startedDate = new Date(sessionSummary.startedAt);
-    const endedDate = new Date(sessionSummary.endedAt);
+    const endedDate = new Date(endedAt);
 
     const startedAtDisplay = startedDate.toLocaleString(undefined, {
       dateStyle: "short",
@@ -115,19 +118,42 @@ export async function dbSaveSessionEnd(sessionSummary) {
 
     const endedReason = sessionSummary.endedReason || "manual";
 
-    // Session-level outcome
-    const status =
-      endedReason === "reward"
-        ? "Rewarded"
-        : endedReason === "invalid_cancel"
-        ? "Canceled"
-        : "Ended";
+    // ✅ Normalize reward fields FIRST (supports both summary.reward and top-level fields)
+    const rewardObj = sessionSummary.reward || null;
 
-    const reward = sessionSummary.reward || null;
     const rewardSum =
-      reward && typeof reward.sum === "number" ? reward.sum : null;
-    const rewardText = reward ? reward.rewardText || null : null;
-    const rewardGranted = reward ? !!reward.granted : false;
+      typeof sessionSummary.rewardSum === "number"
+        ? sessionSummary.rewardSum
+        : rewardObj && typeof rewardObj.sum === "number"
+        ? rewardObj.sum
+        : null;
+
+    const rewardText =
+      sessionSummary.rewardText != null
+        ? String(sessionSummary.rewardText)
+        : rewardObj && rewardObj.rewardText != null
+        ? String(rewardObj.rewardText)
+        : null;
+
+    const rewardGranted =
+      typeof sessionSummary.rewardGranted === "boolean"
+        ? sessionSummary.rewardGranted
+        : rewardObj
+        ? !!rewardObj.granted
+        : false;
+
+    function isNoWinRewardText(text) {
+      if (!text) return false;
+      return /no discount|better luck|no win|no prize/i.test(String(text));
+    }
+
+    // ✅ Now compute status
+    let status = "Ended";
+    if (endedReason === "reward" && rewardGranted) {
+      status = isNoWinRewardText(rewardText) ? "No Win" : "Won";
+    } else if (endedReason === "invalid_cancel") {
+      status = "Canceled";
+    }
 
     // Sanitize invalidEvents but keep mini snapshots for CSV tagging
     const invalidEventsRaw = Array.isArray(sessionSummary.invalidEvents)
@@ -144,11 +170,30 @@ export async function dbSaveSessionEnd(sessionSummary) {
         : [],
     }));
 
+    // ✅ Sanitize winning pair snapshot for CSV rollStatus tagging
+    const validRollsSnapshotRaw = Array.isArray(
+      sessionSummary.validRollsSnapshot
+    )
+      ? sessionSummary.validRollsSnapshot
+      : null;
+
+    const validRollsSnapshot =
+      validRollsSnapshotRaw && validRollsSnapshotRaw.length
+        ? validRollsSnapshotRaw
+            .slice(0, 2)
+            .map((r) => ({
+              timestamp: r?.timestamp || "",
+              dieId: r?.dieId || "",
+            }))
+            .filter((r) => r.timestamp && r.dieId)
+        : [];
+
+    // ✅ Build record AFTER all derived fields exist
     const record = {
       id: sessionSummary.id,
       startedAt: sessionSummary.startedAt,
       startedAtDisplay,
-      endedAt: sessionSummary.endedAt,
+      endedAt: endedAt,
       endedAtDisplay,
 
       tableNumber: sessionSummary.tableNumber,
@@ -157,7 +202,7 @@ export async function dbSaveSessionEnd(sessionSummary) {
       managerName: sessionSummary.managerName,
 
       endedReason,
-      status, // Rewarded / Canceled / Ended
+      status, // Won / No Win / Canceled / Ended
 
       rollsCount: sessionSummary.rolls ? sessionSummary.rolls.length : 0,
 
@@ -166,6 +211,7 @@ export async function dbSaveSessionEnd(sessionSummary) {
       rewardGranted,
 
       invalidEvents,
+      validRollsSnapshot,
     };
 
     store.put(record);
