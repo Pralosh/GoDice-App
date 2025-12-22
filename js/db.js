@@ -334,3 +334,57 @@ export async function dbCountRollsForSession(sessionId) {
     return 0;
   }
 }
+
+// Finalize sessions that were started but never ended (browser refresh/close).
+// We do this on next page load because unload handlers are unreliable for IndexedDB writes.
+export async function dbCloseAbandonedSessions({
+  nowIso = () => new Date().toISOString(),
+} = {}) {
+  const sessions = await dbGetAllSessions();
+  const openSessions = (sessions || []).filter((s) => !s.endedAt);
+
+  openSessions.sort((a, b) => new Date(a.startedAt) - new Date(b.startedAt));
+
+  let closedCount = 0;
+
+  for (const s of openSessions) {
+    const rolls = await dbGetRollsForSession(s.id);
+    const rollsCount = Array.isArray(rolls) ? rolls.length : 0;
+
+    // ✅ New endedReason codes that explicitly mean "Ended due to reload/close"
+    const endedReason =
+      rollsCount === 0
+        ? "abandoned_reload_no_rolls"
+        : "abandoned_reload_incomplete";
+
+    await dbSaveSessionEnd({
+      id: s.id,
+      startedAt: s.startedAt,
+      tableNumber: s.tableNumber || "",
+      checkNumber: s.checkNumber || "",
+      managerId: s.managerId || "",
+      managerName: s.managerName || "",
+
+      endedAt: nowIso(),
+      endedReason,
+
+      // No reward because it never completed properly
+      rewardSum: null,
+      rewardText: null,
+      rewardGranted: false,
+
+      // We lose in-memory invalidEvents on refresh; keep empty.
+      invalidEvents: [],
+
+      // Provide rolls so rollsCount persists correctly
+      rolls: Array.isArray(rolls) ? rolls : [],
+
+      // No winning snapshot because it never completed properly
+      validRollsSnapshot: [],
+    });
+
+    closedCount += 1;
+  }
+
+  return closedCount;
+}

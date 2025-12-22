@@ -6,18 +6,13 @@ import {
   dbGetAllSessions,
   dbGetRollsForSession,
   dbCountRollsForSession,
+  dbCloseAbandonedSessions,
 } from "./db.js";
 import { createSessionController } from "./state.js";
+
 /**********************************
  * SESSION STATE (in memory only)
  **********************************/
-const sessionState = {
-  active: false,
-  current: null, // { id, startedAt, tableNumber, checkNumber, managerId, managerName }
-  rolls: [], // { timestamp, tableNumber, checkNumber, managerId, managerName, dieId, dieLabel, face }
-  invalidEvents: [], // NEW - track invalid events during the session
-  reward: null, // NEW - reward info for the session
-};
 
 // Auto-retry for one-roll situations
 const RETRY_ROUND_TIMEOUT_MS = 1000; // 1 second, adjust if needed
@@ -26,9 +21,6 @@ let retryModalOpen = false;
 
 // Currently selected session in the History modal (for CSV export)
 let currentHistorySessionMeta = null;
-
-// Track if this game has already been completed (2 rolls reached)
-let gameCompleted = false;
 
 // --- Export protection (simple front-end password gate) ---
 let exportUnlocked = false;
@@ -96,6 +88,13 @@ function requireExportPassword() {
     exportPasswordResolve = resolve;
     openExportPasswordModal();
   });
+}
+
+function getRewardForSum(sum) {
+  return (
+    REWARDS_BY_SUM[sum] ||
+    "No configured reward for this total. Please check game rules."
+  );
 }
 
 /**********************************
@@ -270,7 +269,11 @@ async function renderHistoryList(sessions) {
       outcome = invalidCount > 0 ? "Canceled (invalid rolls)" : "Canceled";
     } else {
       // Ended
-      if (endedReason === "ended_no_rolls" || rollsCount === 0) {
+      if (endedReason === "abandoned_reload_no_rolls") {
+        outcome = "Ended (Reload - No Rolls)";
+      } else if (endedReason === "abandoned_reload_incomplete") {
+        outcome = "Ended (Reload - Incomplete)";
+      } else if (endedReason === "ended_no_rolls" || rollsCount === 0) {
         outcome = "Ended (No Rolls)";
       } else {
         outcome = "Ended (Incomplete)";
@@ -336,8 +339,11 @@ async function renderHistoryDetails(sessionId, sessionMeta) {
     else if (sessionStatus === "No Win") endedLabel = "No Win";
     else if (sessionStatus === "Canceled") endedLabel = "Canceled";
     else {
-      // Ended
-      if (endedReason === "ended_no_rolls" || rolls.length === 0) {
+      if (endedReason === "abandoned_reload_no_rolls") {
+        endedLabel = "Ended (Reload - No Rolls)";
+      } else if (endedReason === "abandoned_reload_incomplete") {
+        endedLabel = "Ended (Reload - Incomplete)";
+      } else if (endedReason === "ended_no_rolls" || rolls.length === 0) {
         endedLabel = "Ended (No Rolls)";
       } else {
         endedLabel = "Ended (Incomplete)";
@@ -447,6 +453,13 @@ function deriveRewardColumn(s, rolls) {
   }
 
   if (endedReason === "invalid_cancel") return "N/A (Canceled)";
+
+  if (endedReason === "abandoned_reload_no_rolls") {
+    return "N/A (Ended - Reload - No Rolls)";
+  }
+  if (endedReason === "abandoned_reload_incomplete") {
+    return "N/A (Ended - Reload - Incomplete)";
+  }
 
   const rollsCount = Array.isArray(rolls) ? rolls.length : 0;
   if (endedReason === "ended_no_rolls" || rollsCount === 0) {
@@ -939,8 +952,6 @@ function startSession() {
   startOverlay.style.display = "none";
   connectBtn.disabled = false;
   endSessionBtn.disabled = false;
-
-  gameCompleted = false; // keep this for now; later we’ll remove it when UI moves
 }
 
 function endSession(reason = "manual") {
@@ -975,8 +986,6 @@ function endSession(reason = "manual") {
   checkInput.value = "";
   managerSelect.value = "";
   overlayError.textContent = "";
-
-  gameCompleted = false;
 }
 
 endSessionBtn.addEventListener("click", () => endSession("manual"));
@@ -996,13 +1005,6 @@ const REWARDS_BY_SUM = {
   11: "25% off the check",
   12: "On the house (jackpot!)",
 };
-
-function getRewardForSum(sum) {
-  return (
-    REWARDS_BY_SUM[sum] ||
-    "No configured reward for this total. Please check game rules."
-  );
-}
 
 /**********************************
  * ROLL RECORDING
@@ -1356,3 +1358,11 @@ connectBtn.addEventListener("click", async () => {
  **********************************/
 populateManagerDropdown();
 updateConnectButtonLabel();
+(async () => {
+  const closed = await dbCloseAbandonedSessions();
+  if (closed > 0) {
+    console.info(
+      `[Startup] Closed ${closed} abandoned session(s) after reload/close.`
+    );
+  }
+})();
