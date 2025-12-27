@@ -943,7 +943,7 @@ GoDice.prototype.onBatteryLevel = async (diceId, level) => {
     st.ledPulsed = true;
     st.queue(async () => {
       await sleep(400);
-      await withGattRetry(() => st.inst.pulseLed(3, 15, 15, [0, 128, 155]));
+      await withGattRetry(() => st.inst.pulseLed(3, 15, 15, [82, 14, 125]));
     });
   }
 };
