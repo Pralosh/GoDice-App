@@ -10,6 +10,7 @@ import {
 } from "./db.js";
 import { createSessionController } from "./state.js";
 import { exportAllSessionsCSV, exportSelectedSessionCSV } from "./export.js";
+import { createDiceController } from "./dice.js";
 
 /**********************************
  * SESSION STATE (in memory only)
@@ -166,15 +167,16 @@ const session = createSessionController({
   retryRoundTimeoutMs: RETRY_ROUND_TIMEOUT_MS,
 });
 
-function updateConnectButtonLabel() {
-  if (!diceList) return;
-
-  if (diceList.children.length === 0) {
-    connectBtn.textContent = "Connect Die";
-  } else {
-    connectBtn.textContent = "Connect Another Die";
-  }
-}
+const dice = createDiceController({
+  INACTIVITY_MS,
+  connectBtn,
+  diceListEl: diceList,
+  diceFacesEl: diceFaces,
+  isSessionActive: () => session.isActive(),
+  isRetryModalOpen: () => retryModalOpen,
+  onRoll: (diceId, dieLabel, face) => recordRoll(diceId, dieLabel, face),
+  ledPulseRgb: [82, 14, 125],
+});
 
 /**********************************
  * INDEXEDDB HELPERS (local storage)
@@ -593,8 +595,7 @@ function startSession() {
   overlayError.textContent = "";
 
   // Reset labels and dice UI at the start of each game
-  resetLabelGen();
-  clearAllDiceUI();
+  dice.resetForNewSessionUI();
 
   // Update UI
   sessionInfo.textContent = formatSessionInfo(result.session);
@@ -614,7 +615,7 @@ function endSession(reason = "manual") {
   if (!summary) return;
 
   // Disconnect all dice at end of game (existing behavior)
-  disconnectAllDice();
+  dice.disconnectAllDice();
 
   retryModalOpen = false;
   if (retryBackdrop) retryBackdrop.style.display = "none";
@@ -634,6 +635,7 @@ function endSession(reason = "manual") {
 
 endSessionBtn.addEventListener("click", () => endSession("manual"));
 startSessionBtn.addEventListener("click", startSession);
+connectBtn.addEventListener("click", () => dice.connectNewDie());
 
 // Simple reward configuration by sum of the two dice
 const REWARDS_BY_SUM = {
@@ -658,101 +660,6 @@ function recordRoll(diceId, dieLabel, face) {
 }
 
 /**********************************
- * DICE CONNECTION LOGIC
- **********************************/
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-function shortId(id) {
-  return (id || "").slice(0, 6) + "…";
-}
-
-// LABEL GENERATOR (reset to A/B each game)
-function* labelGen() {
-  const L = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  let n = 0;
-  while (true) {
-    let x = n++,
-      s = "";
-    do {
-      s = L[x % 26] + s;
-      x = Math.floor(x / 26) - 1;
-    } while (x >= 0);
-    yield s;
-  }
-}
-let nextLabel;
-function resetLabelGen() {
-  nextLabel = labelGen();
-}
-resetLabelGen(); // initial
-
-function makeQueue() {
-  let p = Promise.resolve();
-  return (fn) =>
-    (p = p.then(fn).catch((e) => {
-      console.warn("[queue] op failed:", e?.message || e);
-    }));
-}
-
-async function withGattRetry(fn, { retries = 6, delay = 250 } = {}) {
-  let last;
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
-    } catch (e) {
-      const msg = (e && e.message) || String(e);
-      if (!/GATT operation already in progress/i.test(msg)) throw e;
-      last = e;
-      await sleep(delay * (i + 1));
-    }
-  }
-  throw last;
-}
-
-function makeDieCard(diceId, label) {
-  const root = document.createElement("div");
-  root.className = "card";
-  const title = document.createElement("h3");
-  title.textContent = `Die ${label} (${shortId(diceId)})`;
-  const status = document.createElement("div");
-  status.className = "line";
-  status.textContent = "Status: Connected";
-  const battery = document.createElement("div");
-  battery.className = "line";
-  battery.textContent = "Battery: —";
-  const roll = document.createElement("div");
-  roll.className = "line";
-  roll.textContent = "Last roll: —";
-  root.append(title, status, battery, roll);
-  diceList.appendChild(root);
-  return { root, title, status, battery, roll };
-}
-
-// NEW: create visual dice face box
-function makeFaceCard(label) {
-  const root = document.createElement("div");
-  root.className = "dice-face";
-  const lbl = document.createElement("div");
-  lbl.className = "dice-face-label";
-  lbl.textContent = `Dice ${label}`;
-  const square = document.createElement("div");
-  square.className = "dice-square";
-  const valueEl = document.createElement("div");
-  valueEl.className = "dice-square-value";
-  valueEl.textContent = "-";
-  square.appendChild(valueEl);
-  const textUnder = document.createElement("div");
-  textUnder.className = "dice-face-value";
-  textUnder.textContent = "Last roll: -";
-  root.append(lbl, square, textUnder);
-  diceFaces.appendChild(root);
-  return { root, valueEl, textUnder };
-}
-
-const diceState = new Map(); // diceId -> { inst, label, els, faceEls, queue, ready, batteryRequested, ledPulsed, lastActive, timer }
-
-const goDice = new GoDice();
-
-/**********************************
  * RETRY ROLL LOGIC
  **********************************/
 function openRetryModal() {
@@ -769,7 +676,7 @@ function performRetryRoll() {
   session.resetForRetry(); // <-- NEW
 
   // Reset dice UI: "Last roll" text + little dice boxes
-  diceState.forEach((st) => {
+  dice._diceState.forEach((st) => {
     if (st.els && st.els.roll) {
       st.els.roll.textContent = "Last roll: —";
     }
@@ -797,223 +704,10 @@ retryBackdrop.addEventListener("click", (e) => {
   }
 });
 
-window.addEventListener("unhandledrejection", (e) => {
-  const msg = (e && e.reason && e.reason.message) || String(e.reason || "");
-  if (/GATT operation already in progress/i.test(msg)) {
-    e.preventDefault();
-    console.debug("[suppressed] library init race:", msg);
-  }
-});
-
-function setDieStatus(st, statusText, { muted = false } = {}) {
-  if (!st?.els?.status || !st?.els?.root) return;
-
-  st.els.status.textContent = `Status: ${statusText}`;
-  if (muted) st.els.root.classList.add("muted");
-  else st.els.root.classList.remove("muted");
-}
-
-function markActive(diceId) {
-  const st = diceState.get(diceId);
-  if (!st) return;
-  st.lastActive = Date.now();
-  if (st.timer) clearTimeout(st.timer);
-  st.timer = setTimeout(() => handleInactivity(diceId), INACTIVITY_MS);
-}
-
-async function handleInactivity(diceId) {
-  const st = diceState.get(diceId);
-  if (!st) return;
-  const idleFor = Date.now() - (st.lastActive || 0);
-  if (idleFor < INACTIVITY_MS - 100) {
-    markActive(diceId);
-    return;
-  }
-  st.els.status.textContent = "Status: Removed due to inactivity";
-  st.els.root.classList.add("muted");
-  st.queue(async () => {
-    try {
-      await withGattRetry(() => st.inst.disconnect?.());
-    } catch (e) {
-      console.warn(
-        `[${st.label}] disconnect on inactivity failed:`,
-        e?.message || e
-      );
-    } finally {
-      if (st.timer) clearTimeout(st.timer);
-      diceState.delete(diceId);
-      if (st.els.root.parentNode)
-        st.els.root.parentNode.removeChild(st.els.root);
-      if (st.faceEls?.root && st.faceEls.root.parentNode)
-        st.faceEls.root.parentNode.removeChild(st.faceEls.root);
-      updateConnectButtonLabel();
-    }
-  });
-}
-
-// NEW: clear all dice UI elements (cards + faces)
-function clearAllDiceUI() {
-  diceList.innerHTML = "";
-  diceFaces.innerHTML = "";
-  diceState.clear();
-  updateConnectButtonLabel();
-}
-
-// NEW: disconnect all dice at end of session
-function disconnectAllDice() {
-  const entries = Array.from(diceState.entries());
-  entries.forEach(([diceId, st]) => {
-    if (st.timer) clearTimeout(st.timer);
-    setDieStatus(st, "Disconnecting…", { muted: true });
-    st.queue(async () => {
-      try {
-        await withGattRetry(() => st.inst.disconnect?.());
-      } catch (e) {
-        console.warn(
-          `[${st.label}] disconnect on endSession failed:`,
-          e?.message || e
-        );
-      } finally {
-        diceState.delete(diceId);
-        if (st.els.root.parentNode)
-          st.els.root.parentNode.removeChild(st.els.root);
-        if (st.faceEls?.root && st.faceEls.root.parentNode)
-          st.faceEls.root.parentNode.removeChild(st.faceEls.root);
-      }
-    });
-  });
-  // also reset labels so next game starts at Dice A again
-  resetLabelGen();
-  updateConnectButtonLabel();
-}
-
-GoDice.prototype.onDiceConnected = async (diceId, inst) => {
-  let st = diceState.get(diceId);
-  if (!st) {
-    const label = nextLabel.next().value;
-    const els = makeDieCard(diceId, label);
-    const faceEls = makeFaceCard(label);
-    const queue = makeQueue();
-    st = {
-      inst,
-      label,
-      els,
-      faceEls,
-      queue,
-      ready: false,
-      batteryRequested: false,
-      ledPulsed: false,
-      lastActive: Date.now(),
-      timer: null,
-    };
-    diceState.set(diceId, st);
-    console.log(`[${label}] connected id=${diceId}`);
-  } else {
-    st.inst = inst;
-    setDieStatus(st, "Connected", { muted: false });
-    st.lastActive = Date.now();
-    console.log(`[${st.label}] reconnected`);
-  }
-
-  markActive(diceId);
-  await sleep(2000);
-  st.ready = true;
-
-  if (!st.batteryRequested) {
-    st.batteryRequested = true;
-    st.queue(async () => {
-      await withGattRetry(() => st.inst.getBatteryLevel());
-    });
-  }
-
-  connectBtn.disabled = false;
-  updateConnectButtonLabel();
-};
-
-GoDice.prototype.onBatteryLevel = async (diceId, level) => {
-  const st = diceState.get(diceId);
-  if (!st) return;
-  // If we’re receiving data, the die is effectively connected
-  setDieStatus(st, "Connected", { muted: false });
-
-  st.els.battery.textContent = `Battery: ${level}%`;
-  markActive(diceId);
-
-  if (!st.ledPulsed && st.ready) {
-    st.ledPulsed = true;
-    st.queue(async () => {
-      await sleep(400);
-      await withGattRetry(() => st.inst.pulseLed(3, 15, 15, [82, 14, 125]));
-    });
-  }
-};
-
-GoDice.prototype.onStable = (diceId, value /*, acc */) => {
-  const st = diceState.get(diceId);
-  if (!st) return;
-  // If we’re receiving rolls, the die is connected regardless of previous UI state
-  setDieStatus(st, "Connected", { muted: false });
-
-  // 👉 While retry modal is open:
-  // - DO NOT update UI
-  // - DO NOT call recordRoll
-  // - ONLY mark the die as active so inactivity timer doesn't fire
-  if (retryModalOpen) {
-    console.log("[ROLL IGNORED UI] retry modal open, not updating dice face", {
-      diceId,
-      value,
-    });
-    markActive(diceId);
-    return;
-  }
-
-  // Normal flow: update UI
-  st.els.roll.textContent = `Last roll: ${value}`;
-  markActive(diceId);
-
-  if (st.faceEls) {
-    st.faceEls.valueEl.textContent = `${value}`;
-    st.faceEls.textUnder.textContent = `Last roll: ${value}`;
-  }
-
-  // Then record the roll into the session
-  recordRoll(diceId, st.label, value);
-};
-
-GoDice.prototype.onDiceDisconnected = (diceId) => {
-  const st = diceState.get(diceId);
-  if (!st) return;
-  setDieStatus(st, "Disconnected", { muted: true });
-  if (st.timer) clearTimeout(st.timer);
-  console.log(`[${st.label}] disconnected`);
-};
-
-let connecting = false;
-connectBtn.addEventListener("click", async () => {
-  if (connecting) return;
-  if (!session.isActive()) {
-    alert("Start a game session first.");
-    return;
-  }
-  connecting = true;
-  connectBtn.disabled = true;
-  connectBtn.textContent = "Connecting…";
-  try {
-    await goDice.requestDevice();
-  } catch (e) {
-    alert("Connection failed: " + ((e && e.message) || e));
-    connectBtn.disabled = false;
-    updateConnectButtonLabel();
-  } finally {
-    connecting = false;
-  }
-});
-
 /**********************************
  * INIT
  **********************************/
 populateManagerDropdown();
-updateConnectButtonLabel();
 (async () => {
   const closed = await dbCloseAbandonedSessions();
   if (closed > 0) {
