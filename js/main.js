@@ -805,6 +805,14 @@ window.addEventListener("unhandledrejection", (e) => {
   }
 });
 
+function setDieStatus(st, statusText, { muted = false } = {}) {
+  if (!st?.els?.status || !st?.els?.root) return;
+
+  st.els.status.textContent = `Status: ${statusText}`;
+  if (muted) st.els.root.classList.add("muted");
+  else st.els.root.classList.remove("muted");
+}
+
 function markActive(diceId) {
   const st = diceState.get(diceId);
   if (!st) return;
@@ -856,8 +864,7 @@ function disconnectAllDice() {
   const entries = Array.from(diceState.entries());
   entries.forEach(([diceId, st]) => {
     if (st.timer) clearTimeout(st.timer);
-    st.els.status.textContent = "Status: Disconnected";
-    st.els.root.classList.add("muted");
+    setDieStatus(st, "Disconnecting…", { muted: true });
     st.queue(async () => {
       try {
         await withGattRetry(() => st.inst.disconnect?.());
@@ -903,7 +910,7 @@ GoDice.prototype.onDiceConnected = async (diceId, inst) => {
     console.log(`[${label}] connected id=${diceId}`);
   } else {
     st.inst = inst;
-    st.els.status.textContent = "Status: Reconnected";
+    setDieStatus(st, "Connected", { muted: false });
     st.lastActive = Date.now();
     console.log(`[${st.label}] reconnected`);
   }
@@ -926,6 +933,9 @@ GoDice.prototype.onDiceConnected = async (diceId, inst) => {
 GoDice.prototype.onBatteryLevel = async (diceId, level) => {
   const st = diceState.get(diceId);
   if (!st) return;
+  // If we’re receiving data, the die is effectively connected
+  setDieStatus(st, "Connected", { muted: false });
+
   st.els.battery.textContent = `Battery: ${level}%`;
   markActive(diceId);
 
@@ -941,6 +951,8 @@ GoDice.prototype.onBatteryLevel = async (diceId, level) => {
 GoDice.prototype.onStable = (diceId, value /*, acc */) => {
   const st = diceState.get(diceId);
   if (!st) return;
+  // If we’re receiving rolls, the die is connected regardless of previous UI state
+  setDieStatus(st, "Connected", { muted: false });
 
   // 👉 While retry modal is open:
   // - DO NOT update UI
@@ -971,7 +983,7 @@ GoDice.prototype.onStable = (diceId, value /*, acc */) => {
 GoDice.prototype.onDiceDisconnected = (diceId) => {
   const st = diceState.get(diceId);
   if (!st) return;
-  st.els.status.textContent = "Status: Disconnected";
+  setDieStatus(st, "Disconnected", { muted: true });
   if (st.timer) clearTimeout(st.timer);
   console.log(`[${st.label}] disconnected`);
 };
