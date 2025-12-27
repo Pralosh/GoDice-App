@@ -9,6 +9,7 @@ import {
   dbCloseAbandonedSessions,
 } from "./db.js";
 import { createSessionController } from "./state.js";
+import { exportAllSessionsCSV, exportSelectedSessionCSV } from "./export.js";
 
 /**********************************
  * SESSION STATE (in memory only)
@@ -16,7 +17,6 @@ import { createSessionController } from "./state.js";
 
 // Auto-retry for one-roll situations
 const RETRY_ROUND_TIMEOUT_MS = 1000; // 1 second, adjust if needed
-let retryTimer = null;
 let retryModalOpen = false;
 
 // Currently selected session in the History modal (for CSV export)
@@ -179,32 +179,6 @@ function updateConnectButtonLabel() {
 /**********************************
  * INDEXEDDB HELPERS (local storage)
  **********************************/
-function rollKey(ts, dieId) {
-  return ts && dieId ? `${ts}__${dieId}` : "";
-}
-
-function csvEscape(value) {
-  if (value === null || value === undefined) return "";
-  const s = String(value);
-  if (/[",\n]/.test(s)) {
-    return '"' + s.replace(/"/g, '""') + '"';
-  }
-  return s;
-}
-
-function downloadCSV(filename, rows) {
-  const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 // Split an ISO timestamp into separate date & time strings in New York time.
 function formatDateTimeParts(isoString) {
   if (!isoString) {
@@ -252,7 +226,6 @@ async function renderHistoryList(sessions) {
     const endedReason = s.endedReason || "ended";
     const rewardSum = s.rewardSum;
     const rewardText = s.rewardText;
-    const rewardGranted = !!s.rewardGranted;
     const invalidCount = Array.isArray(s.invalidEvents)
       ? s.invalidEvents.length
       : 0;
@@ -470,353 +443,29 @@ function deriveRewardColumn(s, rolls) {
 }
 
 async function handleExportAllSessions() {
-  const ok = await requireExportPassword();
-  if (!ok) return;
-
-  try {
-    exportAllBtn.disabled = true;
-    exportAllBtn.textContent = "Exporting…";
-
-    const sessions = await dbGetAllSessions();
-    if (!sessions.length) {
-      alert("No sessions to export yet.");
-      return;
-    }
-
-    // For each session, fetch rolls
-    const rollsPerSession = await Promise.all(
-      sessions.map((s) => dbGetRollsForSession(s.id))
-    );
-
-    const header = [
-      "sessionId",
-      "tableNumber",
-      "checkNumber",
-      "managerName",
-      "sessionStatus", // Won / No Win / Canceled / Ended
-      "reward", // reward text OR N/A(...)
-      "rollStatus",
-      "sessionStartDate",
-      "sessionStartTime",
-      "sessionEndDate",
-      "sessionEndTime",
-      "rollDate",
-      "rollTime",
-      "dieLabel",
-      "dieId",
-      "face",
-    ];
-    const rows = [header];
-
-    sessions.forEach((s, idx) => {
-      const rolls = rollsPerSession[idx];
-
-      const sessionStatus = deriveSessionStatus(s);
-      const rewardCol = deriveRewardColumn(s, rolls);
-
-      const startParts = formatDateTimeParts(s.startedAt);
-      const endParts = formatDateTimeParts(s.endedAt);
-
-      // Build a lookup of invalid rolls for this session
-      const invalidSet = new Set();
-      if (Array.isArray(s.invalidEvents)) {
-        s.invalidEvents.forEach((ev) => {
-          if (Array.isArray(ev.rollsSnapshot)) {
-            ev.rollsSnapshot.forEach((rSnap) => {
-              const k = rollKey(rSnap?.timestamp, rSnap?.dieId);
-              if (k) invalidSet.add(k);
-            });
-          }
-        });
-      }
-
-      // Build a lookup of the winning (valid) rolls for this session (only 2 rolls)
-      const validSet = new Set();
-      if (Array.isArray(s.validRollsSnapshot)) {
-        s.validRollsSnapshot.forEach((rSnap) => {
-          const k = rollKey(rSnap?.timestamp, rSnap?.dieId);
-          if (k) validSet.add(k);
-        });
-      }
-
-      // Session is considered "rewarded" (Won/No Win) only if endedReason=reward AND rewardGranted=true
-      const sessionIsRewarded = s.endedReason === "reward" && !!s.rewardGranted;
-
-      // ✅ Fallback for older sessions that don't have validRollsSnapshot saved yet
-      if (
-        sessionIsRewarded &&
-        validSet.size === 0 &&
-        Array.isArray(rolls) &&
-        rolls.length >= 2
-      ) {
-        // Find the last two rolls with different dice IDs
-        const sorted = [...rolls].sort(
-          (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
-        );
-
-        let second = null;
-        let first = null;
-
-        for (let i = sorted.length - 1; i >= 0; i--) {
-          if (!second) {
-            second = sorted[i];
-            continue;
-          }
-          if (
-            sorted[i].dieId &&
-            second.dieId &&
-            sorted[i].dieId !== second.dieId
-          ) {
-            first = sorted[i];
-            break;
-          }
-        }
-
-        if (first && second) {
-          validSet.add(rollKey(first.timestamp, first.dieId));
-          validSet.add(rollKey(second.timestamp, second.dieId));
-        }
-      }
-
-      if (!rolls.length) {
-        // Include a row even if there are no rolls
-        rows.push([
-          s.id,
-          s.tableNumber || "",
-          s.checkNumber || "",
-          s.managerName || "",
-          sessionStatus,
-          rewardCol,
-          "", // rollStatus
-          startParts.date,
-          startParts.time,
-          endParts.date,
-          endParts.time,
-          "", // rollDate
-          "", // rollTime
-          "", // dieLabel
-          "", // dieId
-          "", // face
-        ]);
-      } else {
-        rolls.forEach((r) => {
-          const key = rollKey(r.timestamp, r.dieId);
-
-          let rollStatus = "";
-          if (invalidSet.has(key)) {
-            rollStatus = "Invalid Roll";
-          } else if (!sessionIsRewarded) {
-            // If the session never completed a valid two-dice outcome,
-            // then ALL rolls in that session are invalid attempts.
-            rollStatus = "Invalid Roll";
-          } else {
-            // Session ended with a valid outcome:
-            // ONLY the winning pair is Valid Roll, everything else is Invalid Roll.
-            rollStatus = validSet.has(key) ? "Valid Roll" : "Invalid Roll";
-          }
-
-          const rollParts = formatDateTimeParts(r.timestamp);
-
-          rows.push([
-            s.id,
-            s.tableNumber || "",
-            s.checkNumber || "",
-            s.managerName || "",
-            sessionStatus, // 👈 full session outcome
-            rewardCol, // 👈 reward column
-            rollStatus, // 👈 per-roll validity
-            startParts.date,
-            startParts.time,
-            endParts.date,
-            endParts.time,
-            rollParts.date,
-            rollParts.time,
-            r.dieLabel || "",
-            r.dieId || "",
-            r.face,
-          ]);
-        });
-      }
-    });
-
-    const now = new Date();
-    const dateTag = now.toISOString().slice(0, 10); // e.g. 2025-12-11
-    downloadCSV(`godice_history_${dateTag}.csv`, rows);
-  } catch (e) {
-    console.error("[HISTORY] export all failed:", e);
-    alert("Failed to export history.");
-  } finally {
-    exportAllBtn.disabled = false;
-    exportAllBtn.textContent = "Export All (CSV)";
-  }
+  await exportAllSessionsCSV({
+    filename: "godice_sessions.csv",
+    requireExportPassword,
+    dbGetAllSessions,
+    dbGetRollsForSession,
+    deriveSessionStatus,
+    deriveRewardColumn,
+    formatDateTimeParts,
+  });
 }
 
 async function handleExportSelectedSession() {
-  if (!currentHistorySessionMeta) {
-    alert("Please select a session first.");
-    return;
-  }
+  if (!currentHistorySessionMeta) return;
 
-  const ok = await requireExportPassword();
-  if (!ok) return;
-
-  try {
-    exportSessionBtn.disabled = true;
-    exportSessionBtn.textContent = "Exporting…";
-
-    const s = currentHistorySessionMeta;
-    const rolls = await dbGetRollsForSession(s.id);
-
-    const header = [
-      "sessionId",
-      "tableNumber",
-      "checkNumber",
-      "managerName",
-      "sessionStatus", // Rewarded / Canceled / Ended
-      "reward", // reward text OR N/A(...)
-      "rollStatus", // Valid Roll / Invalid Roll / ""
-      "sessionStartDate",
-      "sessionStartTime",
-      "sessionEndDate",
-      "sessionEndTime",
-      "rollDate",
-      "rollTime",
-      "dieLabel",
-      "dieId",
-      "face",
-    ];
-    const rows = [header];
-
-    const sessionStatus = deriveSessionStatus(s);
-    const rewardCol = deriveRewardColumn(s, rolls);
-
-    const startParts = formatDateTimeParts(s.startedAt);
-    const endParts = formatDateTimeParts(s.endedAt);
-
-    // Build invalid set for this single session
-    const invalidSet = new Set();
-    if (Array.isArray(s.invalidEvents)) {
-      s.invalidEvents.forEach((ev) => {
-        if (Array.isArray(ev.rollsSnapshot)) {
-          ev.rollsSnapshot.forEach((rSnap) => {
-            const k = rollKey(rSnap?.timestamp, rSnap?.dieId);
-            if (k) invalidSet.add(k);
-          });
-        }
-      });
-    }
-
-    // Build winning (valid) set (only 2 rolls)
-    const validSet = new Set();
-    if (Array.isArray(s.validRollsSnapshot)) {
-      s.validRollsSnapshot.forEach((rSnap) => {
-        const k = rollKey(rSnap?.timestamp, rSnap?.dieId);
-        if (k) validSet.add(k);
-      });
-    }
-
-    const sessionIsRewarded = s.endedReason === "reward" && !!s.rewardGranted;
-
-    // ✅ Fallback for older sessions that don't have validRollsSnapshot saved yet
-    if (
-      sessionIsRewarded &&
-      validSet.size === 0 &&
-      Array.isArray(rolls) &&
-      rolls.length >= 2
-    ) {
-      const sorted = [...rolls].sort(
-        (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
-      );
-
-      let second = null;
-      let first = null;
-
-      for (let i = sorted.length - 1; i >= 0; i--) {
-        if (!second) {
-          second = sorted[i];
-          continue;
-        }
-        if (
-          sorted[i].dieId &&
-          second.dieId &&
-          sorted[i].dieId !== second.dieId
-        ) {
-          first = sorted[i];
-          break;
-        }
-      }
-
-      if (first && second) {
-        validSet.add(rollKey(first.timestamp, first.dieId));
-        validSet.add(rollKey(second.timestamp, second.dieId));
-      }
-    }
-
-    if (!rolls.length) {
-      rows.push([
-        s.id,
-        s.tableNumber || "",
-        s.checkNumber || "",
-        s.managerName || "",
-        sessionStatus,
-        rewardCol,
-        "",
-        startParts.date,
-        startParts.time,
-        endParts.date,
-        endParts.time,
-        "",
-        "",
-        "",
-        "",
-        "",
-      ]);
-    } else {
-      rolls.forEach((r) => {
-        const key = rollKey(r.timestamp, r.dieId);
-
-        let rollStatus = "";
-        if (invalidSet.has(key)) {
-          rollStatus = "Invalid Roll";
-        } else if (!sessionIsRewarded) {
-          rollStatus = "Invalid Roll";
-        } else {
-          rollStatus = validSet.has(key) ? "Valid Roll" : "Invalid Roll";
-        }
-
-        const rollParts = formatDateTimeParts(r.timestamp);
-
-        rows.push([
-          s.id,
-          s.tableNumber || "",
-          s.checkNumber || "",
-          s.managerName || "",
-          sessionStatus,
-          rewardCol,
-          rollStatus,
-          startParts.date,
-          startParts.time,
-          endParts.date,
-          endParts.time,
-          rollParts.date,
-          rollParts.time,
-          r.dieLabel || "",
-          r.dieId || "",
-          r.face,
-        ]);
-      });
-    }
-
-    const safeTable = (s.tableNumber || "table").replace(/[^a-z0-9]+/gi, "_");
-    const safeCheck = (s.checkNumber || "check").replace(/[^a-z0-9]+/gi, "_");
-    downloadCSV(`godice_session_${safeTable}_${safeCheck}.csv`, rows);
-  } catch (e) {
-    console.error("[HISTORY] export session failed:", e);
-    alert("Failed to export this session.");
-  } finally {
-    exportSessionBtn.disabled = false;
-    exportSessionBtn.textContent = "Export Session (CSV)";
-  }
+  await exportSelectedSessionCSV({
+    filename: `godice_session_${currentHistorySessionMeta.id}.csv`,
+    requireExportPassword,
+    session: currentHistorySessionMeta,
+    dbGetRollsForSession,
+    deriveSessionStatus,
+    deriveRewardColumn,
+    formatDateTimeParts,
+  });
 }
 
 function populateManagerDropdown() {
@@ -967,11 +616,6 @@ function endSession(reason = "manual") {
   // Disconnect all dice at end of game (existing behavior)
   disconnectAllDice();
 
-  // Clear retry state (existing UI state)
-  if (retryTimer) {
-    clearTimeout(retryTimer);
-    retryTimer = null;
-  }
   retryModalOpen = false;
   if (retryBackdrop) retryBackdrop.style.display = "none";
 
