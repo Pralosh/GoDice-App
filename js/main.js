@@ -133,7 +133,7 @@ historyModalUI = createHistoryModal({
   backdropEl: historyBackdrop,
   closeBtn: closeHistoryBtn,
 });
-historyModalUI.bind();
+historyModalUI.bind({ onClose: closeHistory });
 
 const exportAllBtn = document.getElementById("exportAllBtn");
 const exportSessionBtn = document.getElementById("exportSessionBtn");

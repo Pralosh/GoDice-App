@@ -161,9 +161,11 @@ export function createHistoryModal({ backdropEl, closeBtn, display = "flex" }) {
     hideEl(backdropEl);
   }
 
-  function bind() {
-    if (closeBtn) closeBtn.addEventListener("click", close);
-    bindBackdropDismiss(backdropEl, close);
+  function bind({ onClose } = {}) {
+    const handler = typeof onClose === "function" ? onClose : close;
+
+    if (closeBtn) closeBtn.addEventListener("click", handler);
+    bindBackdropDismiss(backdropEl, handler);
   }
 
   return { open, close, bind };
