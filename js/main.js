@@ -11,6 +11,14 @@ import {
 import { createSessionController } from "./state.js";
 import { exportAllSessionsCSV, exportSelectedSessionCSV } from "./export.js";
 import { createDiceController } from "./dice.js";
+import {
+  showEl,
+  hideEl,
+  bindBackdropDismiss,
+  createPasswordModal,
+  createRewardModal,
+  createHistoryModal,
+} from "./ui.js";
 
 /**********************************
  * SESSION STATE (in memory only)
@@ -26,21 +34,18 @@ let currentHistorySessionMeta = null;
 // --- Export protection (simple front-end password gate) ---
 let exportUnlocked = false;
 let exportPasswordResolve = null;
-let exportPasswordVisible = false;
+let exportPasswordModalUI = null;
+
+let rewardModalUI = null;
+
+let historyModalUI = null;
 
 function openExportPasswordModal() {
-  exportPasswordError.textContent = "";
-  exportPasswordInput.value = "";
-  exportPasswordInput.type = "password";
-  exportPasswordVisible = false;
-  exportPasswordShowBtn.textContent = "Show";
-
-  exportPasswordBackdrop.style.display = "flex";
-  setTimeout(() => exportPasswordInput.focus(), 10);
+  exportPasswordModalUI.open();
 }
 
 function closeExportPasswordModal() {
-  exportPasswordBackdrop.style.display = "none";
+  exportPasswordModalUI.close();
   // If we close without explicitly resolving, treat as "cancel"
   if (exportPasswordResolve) {
     exportPasswordResolve(false);
@@ -49,30 +54,27 @@ function closeExportPasswordModal() {
 }
 
 function handleExportPasswordSubmit() {
-  const value = exportPasswordInput.value;
+  const value = exportPasswordModalUI.getValue();
+
   if (!value) {
-    exportPasswordError.textContent = "Please enter a password.";
+    exportPasswordModalUI.setError("Please enter a password.");
     return;
   }
 
   if (value === EXPORT_PASSWORD) {
     exportUnlocked = true;
-    exportPasswordBackdrop.style.display = "none";
+    exportPasswordModalUI.close();
     if (exportPasswordResolve) {
       exportPasswordResolve(true);
       exportPasswordResolve = null;
     }
   } else {
-    exportPasswordError.textContent = "Incorrect password.";
+    exportPasswordModalUI.setError("Incorrect password.");
   }
 }
 
 function handleExportPasswordCancel() {
-  exportPasswordBackdrop.style.display = "none";
-  if (exportPasswordResolve) {
-    exportPasswordResolve(false);
-    exportPasswordResolve = null;
-  }
+  closeExportPasswordModal();
 }
 
 /**
@@ -122,10 +124,16 @@ const diceList = document.getElementById("diceList");
 const diceFaces = document.getElementById("diceFaces");
 
 const historyBackdrop = document.getElementById("historyBackdrop");
-const historyBtn = document.getElementById("historyBtn");
 const closeHistoryBtn = document.getElementById("closeHistoryBtn");
+const historyBtn = document.getElementById("historyBtn");
 const historyListEl = document.getElementById("historyList");
 const historyDetailsEl = document.getElementById("historyDetails");
+
+historyModalUI = createHistoryModal({
+  backdropEl: historyBackdrop,
+  closeBtn: closeHistoryBtn,
+});
+historyModalUI.bind();
 
 const exportAllBtn = document.getElementById("exportAllBtn");
 const exportSessionBtn = document.getElementById("exportSessionBtn");
@@ -135,6 +143,16 @@ const rewardSumEl = document.getElementById("rewardSum");
 const rewardTextEl = document.getElementById("rewardText");
 const rewardRollsEl = document.getElementById("rewardRolls");
 const rewardCloseBtn = document.getElementById("rewardCloseBtn");
+
+rewardModalUI = createRewardModal({
+  backdropEl: rewardBackdrop,
+  sumEl: rewardSumEl,
+  textEl: rewardTextEl,
+  rollsEl: rewardRollsEl,
+  closeBtn: rewardCloseBtn,
+});
+
+rewardModalUI.bind();
 
 const retryBackdrop = document.getElementById("retryBackdrop");
 const retryConfirmBtn = document.getElementById("retryConfirmBtn");
@@ -152,6 +170,20 @@ const exportPasswordSubmitBtn = document.getElementById(
 const exportPasswordCancelBtn = document.getElementById(
   "exportPasswordCancelBtn"
 );
+
+exportPasswordModalUI = createPasswordModal({
+  backdropEl: exportPasswordBackdrop,
+  inputEl: exportPasswordInput,
+  errorEl: exportPasswordError,
+  showBtn: exportPasswordShowBtn,
+  submitBtn: exportPasswordSubmitBtn,
+  cancelBtn: exportPasswordCancelBtn,
+});
+
+exportPasswordModalUI.bind({
+  onSubmit: handleExportPasswordSubmit,
+  onCancel: handleExportPasswordCancel,
+});
 
 const session = createSessionController({
   managers: MANAGERS,
@@ -375,7 +407,7 @@ async function renderHistoryDetails(sessionId, sessionMeta) {
 }
 
 async function openHistory() {
-  historyBackdrop.style.display = "flex";
+  historyModalUI.open();
   historyListEl.innerHTML =
     '<p style="font-size:13px; color:#9ca3af;">Loading…</p>';
   historyDetailsEl.innerHTML =
@@ -392,7 +424,7 @@ async function openHistory() {
 }
 
 function closeHistory() {
-  historyBackdrop.style.display = "none";
+  historyModalUI.close();
 
   // Reset export unlock when History is closed
   exportUnlocked = false;
@@ -483,27 +515,24 @@ function populateManagerDropdown() {
  * GUIDELINES MODAL LOGIC
  **********************************/
 function openGuidelines() {
-  guidelinesBackdrop.style.display = "flex";
+  showEl(guidelinesBackdrop, "flex");
 }
 function closeGuidelines() {
-  guidelinesBackdrop.style.display = "none";
+  hideEl(guidelinesBackdrop);
 }
+
 guidelinesBtn.addEventListener("click", openGuidelines);
 guidelinesTopBtn.addEventListener("click", openGuidelines);
 closeGuidelinesBtn.addEventListener("click", closeGuidelines);
-guidelinesBackdrop.addEventListener("click", (e) => {
-  if (e.target === guidelinesBackdrop) closeGuidelines();
-});
+
+// Close if user clicks the backdrop (outside the modal)
+bindBackdropDismiss(guidelinesBackdrop, closeGuidelines);
 
 /**********************************
  * HISTORY MODAL EVENTS
  **********************************/
 overlayHistoryBtn.addEventListener("click", openHistory);
 historyBtn.addEventListener("click", openHistory);
-closeHistoryBtn.addEventListener("click", closeHistory);
-historyBackdrop.addEventListener("click", (e) => {
-  if (e.target === historyBackdrop) closeHistory();
-});
 
 exportAllBtn.addEventListener("click", handleExportAllSessions);
 exportSessionBtn.addEventListener("click", handleExportSelectedSession);
@@ -512,62 +541,12 @@ exportSessionBtn.addEventListener("click", handleExportSelectedSession);
  * REWARD MODAL LOGIC
  **********************************/
 function openRewardModal(sum, rewardText, firstRoll, secondRoll) {
-  rewardSumEl.textContent = sum;
-  rewardTextEl.textContent = rewardText;
-
-  if (firstRoll && secondRoll) {
-    rewardRollsEl.innerHTML = `
-            <div>Roll 1 - Die ${firstRoll.dieLabel || ""}: face ${
-      firstRoll.face
-    }</div>
-            <div>Roll 2 - Die ${secondRoll.dieLabel || ""}: face ${
-      secondRoll.face
-    }</div>
-          `;
-  } else {
-    rewardRollsEl.textContent = "";
-  }
-
-  rewardBackdrop.style.display = "flex";
+  rewardModalUI.open(sum, rewardText, firstRoll, secondRoll);
 }
 
-// Close reward modal and automatically end the game
 function closeRewardModal() {
-  rewardBackdrop.style.display = "none";
+  rewardModalUI.close();
 }
-
-rewardCloseBtn.addEventListener("click", closeRewardModal);
-rewardBackdrop.addEventListener("click", (e) => {
-  if (e.target === rewardBackdrop) {
-    closeRewardModal();
-  }
-});
-
-/**********************************
- * EXPORT PASSWORD MODAL EVENTS
- **********************************/
-exportPasswordShowBtn.addEventListener("click", () => {
-  exportPasswordVisible = !exportPasswordVisible;
-  exportPasswordInput.type = exportPasswordVisible ? "text" : "password";
-  exportPasswordShowBtn.textContent = exportPasswordVisible ? "Hide" : "Show";
-});
-
-exportPasswordSubmitBtn.addEventListener("click", handleExportPasswordSubmit);
-exportPasswordCancelBtn.addEventListener("click", handleExportPasswordCancel);
-
-exportPasswordBackdrop.addEventListener("click", (e) => {
-  if (e.target === exportPasswordBackdrop) {
-    handleExportPasswordCancel();
-  }
-});
-
-// Allow Enter key to submit password
-exportPasswordInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    handleExportPasswordSubmit();
-  }
-});
 
 /**********************************
  * SESSION HELPERS
